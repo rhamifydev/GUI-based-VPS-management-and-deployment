@@ -31,7 +31,8 @@ import {
     FileText,
     Settings,
     Eye,
-    EyeOff
+    EyeOff,
+    X
 } from 'lucide-react';
 
 export default function Welcome({ auth, laravelVersion, phpVersion }) {
@@ -828,7 +829,10 @@ export default function Welcome({ auth, laravelVersion, phpVersion }) {
                             <div className="p-4 font-mono text-xs flex-1 overflow-y-auto space-y-2 text-slate-300 scrollbar-thin scrollbar-thumb-slate-800">
                                 <div className="text-slate-400"># Antigravity VPS Automation Console v2.0</div>
                                 <div className="text-slate-400"># Connected to Ubuntu 24.04.1 LTS (GNU/Linux 6.8.0-40-generic)</div>
-                                <div className="text-emerald-400/90">&radic; SSH Host Key Verified [ed25519-sha256]</div>
+                                <div className="text-emerald-400/90 flex items-center gap-1.5">
+                                    <Check className="w-3.5 h-3.5 text-emerald-400" />
+                                    <span>SSH Host Key Verified [ed25519-sha256]</span>
+                                </div>
                                 <div className="border-b border-slate-800/80 my-2" />
 
                                 {simulatedLogs.length === 0 ? (
@@ -893,7 +897,7 @@ export default function Welcome({ auth, laravelVersion, phpVersion }) {
                         <div className="bg-rose-950/10 border border-rose-900/30 rounded-2xl p-6 sm:p-8 relative">
                             <div className="flex items-center gap-3 mb-6">
                                 <div className="w-10 h-10 rounded-xl bg-rose-500/20 text-rose-400 flex items-center justify-center font-bold">
-                                    &times;
+                                    <X className="w-5 h-5 text-rose-400" />
                                 </div>
                                 <div>
                                     <h3 className="text-xl font-bold text-white">Manual Terminal Workflow</h3>
@@ -929,7 +933,7 @@ export default function Welcome({ auth, laravelVersion, phpVersion }) {
                         <div className="bg-indigo-950/20 border border-indigo-500/30 rounded-2xl p-6 sm:p-8 relative shadow-2xl">
                             <div className="flex items-center gap-3 mb-6">
                                 <div className="w-10 h-10 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center font-bold">
-                                    &check;
+                                    <Check className="w-5 h-5 text-indigo-400" />
                                 </div>
                                 <div>
                                     <h3 className="text-xl font-bold text-white">Visual Management Platform</h3>
@@ -1048,7 +1052,16 @@ export default function Welcome({ auth, laravelVersion, phpVersion }) {
                         <span>VPS Deploy GUI &bull; Automated Infrastructure Platform</span>
                     </div>
                     <div>
-                        Powered by Laravel v{laravelVersion} (PHP v{phpVersion}) &bull; React &bull; MySQL
+                        Powered by{' '}
+                        <a
+                            href="https://github.com/rhamifydev"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-indigo-400 hover:text-indigo-300 underline font-semibold transition-colors"
+                        >
+                            Rhamify Technology
+                        </a>{' '}
+                        &bull; Laravel v{laravelVersion} (PHP v{phpVersion}) &bull; React &bull; MySQL
                     </div>
                 </div>
             </footer>
