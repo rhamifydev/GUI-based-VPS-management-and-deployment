@@ -32,7 +32,8 @@ import {
     Settings,
     Eye,
     EyeOff,
-    X
+    X,
+    Menu
 } from 'lucide-react';
 
 export default function Welcome({ auth, laravelVersion, phpVersion }) {
@@ -41,6 +42,7 @@ export default function Welcome({ auth, laravelVersion, phpVersion }) {
     const [copiedKey, setCopiedKey] = useState(false);
     const [simulatedLogs, setSimulatedLogs] = useState([]);
     const [isSimulating, setIsSimulating] = useState(false);
+    const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
     // Form states for the interactive studio
     const [serverIp, setServerIp] = useState('147.93.85.120');
@@ -157,19 +159,19 @@ export default function Welcome({ auth, laravelVersion, phpVersion }) {
             </div>
 
             {/* Top Navigation */}
-            <header className="sticky top-0 z-50 backdrop-blur-xl bg-[#0A0D14]/85 border-b border-slate-800/80">
-                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                        <div className="w-11 h-11 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-400 p-[1px] shadow-lg shadow-indigo-500/20">
+            <header className="sticky top-0 z-50 backdrop-blur-xl bg-[#0A0D14]/90 border-b border-slate-800/80">
+                <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 h-16 sm:h-20 flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+                        <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-400 p-[1px] shadow-lg shadow-indigo-500/20 flex-shrink-0">
                             <div className="w-full h-full bg-[#0E131F] rounded-[11px] flex items-center justify-center">
-                                <Server className="w-6 h-6 text-indigo-400" />
+                                <Server className="w-5 h-5 sm:w-6 sm:h-6 text-indigo-400" />
                             </div>
                         </div>
-                        <div>
-                            <span className="font-bold text-lg tracking-tight bg-gradient-to-r from-white via-slate-100 to-slate-400 bg-clip-text text-transparent">
+                        <div className="min-w-0">
+                            <span className="font-bold text-base sm:text-lg tracking-tight bg-gradient-to-r from-white via-slate-100 to-slate-400 bg-clip-text text-transparent truncate block">
                                 VPS<span className="text-indigo-400">Deploy</span> GUI
                             </span>
-                            <div className="flex items-center gap-1.5 text-xs text-slate-400">
+                            <div className="hidden sm:flex items-center gap-1.5 text-xs text-slate-400">
                                 <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
                                 <span>Self-Hosted Automation Engine</span>
                             </div>
@@ -182,34 +184,69 @@ export default function Welcome({ auth, laravelVersion, phpVersion }) {
                         <a href="#comparison" className="hover:text-white transition-colors">Manual vs GUI</a>
                     </nav>
 
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-1.5 sm:gap-3 flex-shrink-0">
                         {auth?.user ? (
                             <Link
                                 href={route('dashboard')}
-                                className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-sm transition-all shadow-md shadow-indigo-600/30 flex items-center gap-2"
+                                className="px-3 py-1.5 sm:px-5 sm:py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-xs sm:text-sm whitespace-nowrap transition-all shadow-md shadow-indigo-600/30 flex items-center gap-1.5 sm:gap-2"
                             >
-                                <Layers className="w-4 h-4" />
-                                Dashboard
+                                <Layers className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                                <span>Dashboard</span>
                             </Link>
                         ) : (
                             <>
                                 <Link
                                     href={route('login')}
-                                    className="px-4 py-2 rounded-xl text-slate-300 hover:text-white text-sm font-medium transition-colors hover:bg-slate-800/60"
+                                    className="px-2.5 py-1.5 sm:px-4 sm:py-2 rounded-xl text-slate-300 hover:text-white text-xs sm:text-sm font-medium whitespace-nowrap transition-colors hover:bg-slate-800/60"
                                 >
                                     Log in
                                 </Link>
                                 <Link
                                     href={route('register')}
-                                    className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 text-white font-medium text-sm transition-all shadow-lg shadow-indigo-500/25 flex items-center gap-2"
+                                    className="px-3 py-1.5 sm:px-5 sm:py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 text-white font-medium text-xs sm:text-sm whitespace-nowrap transition-all shadow-md sm:shadow-lg shadow-indigo-500/25 flex items-center gap-1 sm:gap-2"
                                 >
                                     <span>Get Started</span>
-                                    <ArrowRight className="w-4 h-4" />
+                                    <ArrowRight className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                                 </Link>
                             </>
                         )}
+
+                        <button
+                            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                            className="md:hidden p-1.5 rounded-lg bg-slate-900 border border-slate-800 text-slate-300 hover:text-white transition-colors"
+                            aria-label="Toggle navigation menu"
+                        >
+                            {mobileMenuOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
+                        </button>
                     </div>
                 </div>
+
+                {/* Mobile Dropdown Navigation */}
+                {mobileMenuOpen && (
+                    <div className="md:hidden border-t border-slate-800/80 bg-[#0E131F]/95 backdrop-blur-2xl px-4 py-3 space-y-2">
+                        <a
+                            href="#pipeline"
+                            onClick={() => setMobileMenuOpen(false)}
+                            className="block px-3 py-2 rounded-lg text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800/60 transition-colors"
+                        >
+                            10-Step Workflow
+                        </a>
+                        <a
+                            href="#architecture"
+                            onClick={() => setMobileMenuOpen(false)}
+                            className="block px-3 py-2 rounded-lg text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800/60 transition-colors"
+                        >
+                            Architecture
+                        </a>
+                        <a
+                            href="#comparison"
+                            onClick={() => setMobileMenuOpen(false)}
+                            className="block px-3 py-2 rounded-lg text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800/60 transition-colors"
+                        >
+                            Manual vs GUI
+                        </a>
+                    </div>
+                )}
             </header>
 
             {/* Hero Section */}
