@@ -1,361 +1,1057 @@
+import React, { useState } from 'react';
 import { Head, Link } from '@inertiajs/react';
+import {
+    Server,
+    Key,
+    Terminal,
+    GitBranch,
+    FolderTree,
+    Shield,
+    Cpu,
+    Globe,
+    Zap,
+    Play,
+    CheckCircle2,
+    Copy,
+    Check,
+    RefreshCw,
+    Sliders,
+    Lock,
+    ExternalLink,
+    Code,
+    Sparkles,
+    ChevronRight,
+    AlertCircle,
+    Activity,
+    Layers,
+    ArrowRight,
+    HardDrive,
+    Database,
+    Radio,
+    FileText,
+    Settings,
+    Eye,
+    EyeOff
+} from 'lucide-react';
 
 export default function Welcome({ auth, laravelVersion, phpVersion }) {
-    const handleImageError = () => {
-        document
-            .getElementById('screenshot-container')
-            ?.classList.add('!hidden');
-        document.getElementById('docs-card')?.classList.add('!row-span-1');
-        document
-            .getElementById('docs-card-content')
-            ?.classList.add('!flex-row');
-        document.getElementById('background')?.classList.add('!hidden');
+    // Active step in the interactive 10-step studio
+    const [activeStep, setActiveStep] = useState(1);
+    const [copiedKey, setCopiedKey] = useState(false);
+    const [simulatedLogs, setSimulatedLogs] = useState([]);
+    const [isSimulating, setIsSimulating] = useState(false);
+
+    // Form states for the interactive studio
+    const [serverIp, setServerIp] = useState('147.93.85.120');
+    const [sshUser, setSshUser] = useState('rhamifytechnology');
+    const [repoUrl, setRepoUrl] = useState('git@github-rhamify-app:rhamifytech/vps-deployment-app.git');
+    const [domain, setDomain] = useState('new.rhamify.com');
+    const [phpVer, setPhpVer] = useState('8.4');
+    const [reverbPort, setReverbPort] = useState('8082');
+
+    const steps = [
+        {
+            id: 1,
+            title: 'SSH Deploy Key',
+            badge: 'Identity',
+            icon: Key,
+            description: 'Generate dedicated ed25519 keypair for automated GitHub repository cloning.'
+        },
+        {
+            id: 2,
+            title: 'SSH Host Alias',
+            badge: 'Config',
+            icon: Sliders,
+            description: 'Map github-rhamify-app to IdentityFile with strict 600 permissions.'
+        },
+        {
+            id: 3,
+            title: 'Clone Repository',
+            badge: 'Git',
+            icon: GitBranch,
+            description: 'Test remote handshake and checkout production branch without prompt locks.'
+        },
+        {
+            id: 4,
+            title: 'Environment & Build',
+            badge: 'App Setup',
+            icon: Database,
+            description: '.env configuration, composer optimize, key generation, migrations, and npm build.'
+        },
+        {
+            id: 5,
+            title: 'Permissions & ACL',
+            badge: 'Security',
+            icon: Shield,
+            description: 'Assign setfacl permissions for Nginx user and 775 access to storage/cache.'
+        },
+        {
+            id: 6,
+            title: 'PHP-FPM Pool',
+            badge: 'Engine',
+            icon: Cpu,
+            description: 'Dedicated PHP 8.4 socket pool, process limits, and zero-downtime service reload.'
+        },
+        {
+            id: 7,
+            title: 'Nginx & SSL',
+            badge: 'Web Server',
+            icon: Globe,
+            description: 'FastCGI buffers, security location rules, and 1-click Certbot Let\'s Encrypt SSL.'
+        },
+        {
+            id: 8,
+            title: 'Supervisor & Reverb',
+            badge: 'Daemons',
+            icon: Radio,
+            description: 'Continuous queue worker daemon and Laravel Reverb WebSockets process supervision.'
+        },
+        {
+            id: 9,
+            title: 'Auto-Deploy Script',
+            badge: 'Automation',
+            icon: Terminal,
+            description: 'Zero-downtime deploy.sh with maintenance mode trap and worker reload.'
+        },
+        {
+            id: 10,
+            title: 'GitHub Actions CI/CD',
+            badge: 'Pipeline',
+            icon: Zap,
+            description: 'Push-to-deploy workflow executing deploy.sh over authenticated SSH.'
+        }
+    ];
+
+    const copyToClipboard = (text) => {
+        navigator.clipboard.writeText(text);
+        setCopiedKey(true);
+        setTimeout(() => setCopiedKey(false), 2000);
+    };
+
+    const runSimulation = (stepTitle, commands) => {
+        setIsSimulating(true);
+        setSimulatedLogs([`[INFO] Starting execution for: ${stepTitle}...`]);
+
+        commands.forEach((cmd, idx) => {
+            setTimeout(() => {
+                setSimulatedLogs((prev) => [...prev, `[CMD] $ ${cmd}`, `[SUCCESS] Exited with code 0 (${Math.floor(Math.random() * 80 + 20)}ms)`]);
+                if (idx === commands.length - 1) {
+                    setIsSimulating(false);
+                    setSimulatedLogs((prev) => [...prev, `[STATUS] Step ${activeStep} verified successfully!`]);
+                }
+            }, (idx + 1) * 450);
+        });
     };
 
     return (
-        <>
-            <Head title="Welcome" />
-            <div className="bg-gray-50 text-black/50 dark:bg-black dark:text-white/50">
-                <img
-                    id="background"
-                    className="absolute -left-20 top-0 max-w-[877px]"
-                    src="https://laravel.com/assets/img/welcome/background.svg"
-                />
-                <div className="relative flex min-h-screen flex-col items-center justify-center selection:bg-[#FF2D20] selection:text-white">
-                    <div className="relative w-full max-w-2xl px-6 lg:max-w-7xl">
-                        <header className="grid grid-cols-2 items-center gap-2 py-10 lg:grid-cols-3">
-                            <div className="flex lg:col-start-2 lg:justify-center">
-                                <svg
-                                    className="h-12 w-auto text-white lg:h-16 lg:text-[#FF2D20]"
-                                    viewBox="0 0 62 65"
-                                    fill="none"
-                                    xmlns="http://www.w3.org/2000/svg"
-                                >
-                                    <path
-                                        d="M61.8548 14.6253C61.8778 14.7102 61.8895 14.7978 61.8897 14.8858V28.5615C61.8898 28.737 61.8434 28.9095 61.7554 29.0614C61.6675 29.2132 61.5409 29.3392 61.3887 29.4265L49.9104 36.0351V49.1337C49.9104 49.4902 49.7209 49.8192 49.4118 49.9987L25.4519 63.7916C25.3971 63.8227 25.3372 63.8427 25.2774 63.8639C25.255 63.8714 25.2338 63.8851 25.2101 63.8913C25.0426 63.9354 24.8666 63.9354 24.6991 63.8913C24.6716 63.8838 24.6467 63.8689 24.6205 63.8589C24.5657 63.8389 24.5084 63.8215 24.456 63.7916L0.501061 49.9987C0.348882 49.9113 0.222437 49.7853 0.134469 49.6334C0.0465019 49.4816 0.000120578 49.3092 0 49.1337L0 8.10652C0 8.01678 0.0124642 7.92953 0.0348998 7.84477C0.0423783 7.8161 0.0598282 7.78993 0.0697995 7.76126C0.0884958 7.70891 0.105946 7.65531 0.133367 7.6067C0.152063 7.5743 0.179485 7.54812 0.20192 7.51821C0.230588 7.47832 0.256763 7.43719 0.290416 7.40229C0.319084 7.37362 0.356476 7.35243 0.388883 7.32751C0.425029 7.29759 0.457436 7.26518 0.498568 7.2415L12.4779 0.345059C12.6296 0.257786 12.8015 0.211853 12.9765 0.211853C13.1515 0.211853 13.3234 0.257786 13.475 0.345059L25.4531 7.2415H25.4556C25.4955 7.26643 25.5292 7.29759 25.5653 7.32626C25.5977 7.35119 25.6339 7.37362 25.6625 7.40104C25.6974 7.43719 25.7224 7.47832 25.7523 7.51821C25.7735 7.54812 25.8021 7.5743 25.8196 7.6067C25.8483 7.65656 25.8645 7.70891 25.8844 7.76126C25.8944 7.78993 25.9118 7.8161 25.9193 7.84602C25.9423 7.93096 25.954 8.01853 25.9542 8.10652V33.7317L35.9355 27.9844V14.8846C35.9355 14.7973 35.948 14.7088 35.9704 14.6253C35.9792 14.5954 35.9954 14.5692 36.0053 14.5405C36.0253 14.4882 36.0427 14.4346 36.0702 14.386C36.0888 14.3536 36.1163 14.3274 36.1375 14.2975C36.1674 14.2576 36.1923 14.2165 36.2272 14.1816C36.2559 14.1529 36.292 14.1317 36.3244 14.1068C36.3618 14.0769 36.3942 14.0445 36.4341 14.0208L48.4147 7.12434C48.5663 7.03694 48.7383 6.99094 48.9133 6.99094C49.0883 6.99094 49.2602 7.03694 49.4118 7.12434L61.3899 14.0208C61.4323 14.0457 61.4647 14.0769 61.5021 14.1055C61.5333 14.1305 61.5694 14.1529 61.5981 14.1803C61.633 14.2165 61.6579 14.2576 61.6878 14.2975C61.7103 14.3274 61.7377 14.3536 61.7551 14.386C61.7838 14.4346 61.8 14.4882 61.8199 14.5405C61.8312 14.5692 61.8474 14.5954 61.8548 14.6253ZM59.893 27.9844V16.6121L55.7013 19.0252L49.9104 22.3593V33.7317L59.8942 27.9844H59.893ZM47.9149 48.5566V37.1768L42.2187 40.4299L25.953 49.7133V61.2003L47.9149 48.5566ZM1.99677 9.83281V48.5566L23.9562 61.199V49.7145L12.4841 43.2219L12.4804 43.2194L12.4754 43.2169C12.4368 43.1945 12.4044 43.1621 12.3682 43.1347C12.3371 43.1097 12.3009 43.0898 12.2735 43.0624L12.271 43.0586C12.2386 43.0275 12.2162 42.9888 12.1887 42.9539C12.1638 42.9203 12.1339 42.8916 12.114 42.8567L12.1127 42.853C12.0903 42.8156 12.0766 42.7707 12.0604 42.7283C12.0442 42.6909 12.023 42.656 12.013 42.6161C12.0005 42.5688 11.998 42.5177 11.9931 42.4691C11.9881 42.4317 11.9781 42.3943 11.9781 42.3569V15.5801L6.18848 12.2446L1.99677 9.83281ZM12.9777 2.36177L2.99764 8.10652L12.9752 13.8513L22.9541 8.10527L12.9752 2.36177H12.9777ZM18.1678 38.2138L23.9574 34.8809V9.83281L19.7657 12.2459L13.9749 15.5801V40.6281L18.1678 38.2138ZM48.9133 9.14105L38.9344 14.8858L48.9133 20.6305L58.8909 14.8846L48.9133 9.14105ZM47.9149 22.3593L42.124 19.0252L37.9323 16.6121V27.9844L43.7219 31.3174L47.9149 33.7317V22.3593ZM24.9533 47.987L39.59 39.631L46.9065 35.4555L36.9352 29.7145L25.4544 36.3242L14.9907 42.3482L24.9533 47.987Z"
-                                        fill="currentColor"
-                                    />
-                                </svg>
-                            </div>
-                            <nav className="-mx-3 flex flex-1 justify-end">
-                                {auth.user ? (
-                                    <Link
-                                        href={route('dashboard')}
-                                        className="rounded-md px-3 py-2 text-black ring-1 ring-transparent transition hover:text-black/70 focus:outline-none focus-visible:ring-[#FF2D20] dark:text-white dark:hover:text-white/80 dark:focus-visible:ring-white"
-                                    >
-                                        Dashboard
-                                    </Link>
-                                ) : (
-                                    <>
-                                        <Link
-                                            href={route('login')}
-                                            className="rounded-md px-3 py-2 text-black ring-1 ring-transparent transition hover:text-black/70 focus:outline-none focus-visible:ring-[#FF2D20] dark:text-white dark:hover:text-white/80 dark:focus-visible:ring-white"
-                                        >
-                                            Log in
-                                        </Link>
-                                        <Link
-                                            href={route('register')}
-                                            className="rounded-md px-3 py-2 text-black ring-1 ring-transparent transition hover:text-black/70 focus:outline-none focus-visible:ring-[#FF2D20] dark:text-white dark:hover:text-white/80 dark:focus-visible:ring-white"
-                                        >
-                                            Register
-                                        </Link>
-                                    </>
-                                )}
-                            </nav>
-                        </header>
+        <div className="min-h-screen bg-[#0A0D14] text-slate-100 font-sans selection:bg-indigo-500 selection:text-white">
+            <Head title="GUI-based VPS Management & Automated Deployment" />
 
-                        <main className="mt-6">
-                            <div className="grid gap-6 lg:grid-cols-2 lg:gap-8">
-                                <a
-                                    href="https://laravel.com/docs"
-                                    id="docs-card"
-                                    className="flex flex-col items-start gap-6 overflow-hidden rounded-lg bg-white p-6 shadow-[0px_14px_34px_0px_rgba(0,0,0,0.08)] ring-1 ring-white/[0.05] transition duration-300 hover:text-black/70 hover:ring-black/20 focus:outline-none focus-visible:ring-[#FF2D20] md:row-span-3 lg:p-10 lg:pb-10 dark:bg-zinc-900 dark:ring-zinc-800 dark:hover:text-white/70 dark:hover:ring-zinc-700 dark:focus-visible:ring-[#FF2D20]"
+            {/* Glowing ambient background grids */}
+            <div className="fixed inset-0 pointer-events-none overflow-hidden z-0">
+                <div className="absolute top-[-15%] left-[20%] w-[650px] h-[650px] bg-indigo-600/15 rounded-full blur-[140px]" />
+                <div className="absolute top-[25%] right-[-10%] w-[500px] h-[500px] bg-cyan-600/10 rounded-full blur-[130px]" />
+                <div className="absolute bottom-[10%] left-[-5%] w-[600px] h-[600px] bg-emerald-600/10 rounded-full blur-[150px]" />
+                <div className="absolute inset-0 bg-[linear-gradient(to_right,#1f293708_1px,transparent_1px),linear-gradient(to_bottom,#1f293708_1px,transparent_1px)] bg-[size:4rem_4rem]" />
+            </div>
+
+            {/* Top Navigation */}
+            <header className="sticky top-0 z-50 backdrop-blur-xl bg-[#0A0D14]/85 border-b border-slate-800/80">
+                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                        <div className="w-11 h-11 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-400 p-[1px] shadow-lg shadow-indigo-500/20">
+                            <div className="w-full h-full bg-[#0E131F] rounded-[11px] flex items-center justify-center">
+                                <Server className="w-6 h-6 text-indigo-400" />
+                            </div>
+                        </div>
+                        <div>
+                            <span className="font-bold text-lg tracking-tight bg-gradient-to-r from-white via-slate-100 to-slate-400 bg-clip-text text-transparent">
+                                VPS<span className="text-indigo-400">Deploy</span> GUI
+                            </span>
+                            <div className="flex items-center gap-1.5 text-xs text-slate-400">
+                                <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                                <span>Self-Hosted Automation Engine</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-slate-300">
+                        <a href="#pipeline" className="hover:text-white transition-colors">10-Step Workflow</a>
+                        <a href="#architecture" className="hover:text-white transition-colors">Architecture</a>
+                        <a href="#comparison" className="hover:text-white transition-colors">Manual vs GUI</a>
+                    </nav>
+
+                    <div className="flex items-center gap-3">
+                        {auth?.user ? (
+                            <Link
+                                href={route('dashboard')}
+                                className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-sm transition-all shadow-md shadow-indigo-600/30 flex items-center gap-2"
+                            >
+                                <Layers className="w-4 h-4" />
+                                Dashboard
+                            </Link>
+                        ) : (
+                            <>
+                                <Link
+                                    href={route('login')}
+                                    className="px-4 py-2 rounded-xl text-slate-300 hover:text-white text-sm font-medium transition-colors hover:bg-slate-800/60"
+                                >
+                                    Log in
+                                </Link>
+                                <Link
+                                    href={route('register')}
+                                    className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 text-white font-medium text-sm transition-all shadow-lg shadow-indigo-500/25 flex items-center gap-2"
+                                >
+                                    <span>Get Started</span>
+                                    <ArrowRight className="w-4 h-4" />
+                                </Link>
+                            </>
+                        )}
+                    </div>
+                </div>
+            </header>
+
+            {/* Hero Section */}
+            <main className="relative z-10">
+                <section className="pt-16 pb-20 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto text-center">
+                    <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-indigo-500/10 border border-indigo-500/30 text-indigo-300 text-xs font-semibold mb-6 shadow-inner">
+                        <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+                        <span>Automating the 10-Step VPS Deployment Guide into a Visual Interface</span>
+                    </div>
+
+                    <h1 className="text-4xl sm:text-6xl lg:text-7xl font-extrabold tracking-tight text-white max-w-5xl mx-auto leading-[1.12]">
+                        Deploy & Manage Remote VPS Servers{' '}
+                        <span className="bg-gradient-to-r from-indigo-400 via-cyan-400 to-emerald-400 bg-clip-text text-transparent">
+                            Without Repeated Terminal Commands
+                        </span>
+                    </h1>
+
+                    <p className="mt-6 text-lg sm:text-xl text-slate-400 max-w-3xl mx-auto leading-relaxed">
+                        Your server stays entirely yours. Connect any Ubuntu or Debian VPS via SSH to visually orchestrate deploy keys, Git repositories, <code className="text-indigo-300">.env</code> configs, builds, Nginx virtual hosts, SSL certificates, Supervisor queue daemons, and push-to-deploy workflows.
+                    </p>
+
+                    <div className="mt-8 flex flex-wrap items-center justify-center gap-4">
+                        <a
+                            href="#pipeline"
+                            className="px-7 py-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-base transition-all shadow-xl shadow-indigo-600/30 flex items-center gap-2.5"
+                        >
+                            <Play className="w-4 h-4 fill-white" />
+                            <span>Try Interactive 10-Step Studio</span>
+                        </a>
+                        <Link
+                            href={auth?.user ? route('dashboard') : route('register')}
+                            className="px-7 py-3.5 rounded-xl bg-slate-900/90 hover:bg-slate-800 border border-slate-700/80 text-slate-200 font-semibold text-base transition-all flex items-center gap-2"
+                        >
+                            <Server className="w-4 h-4 text-cyan-400" />
+                            <span>Connect Your Server</span>
+                        </Link>
+                    </div>
+
+                    {/* Live Server Telemetry Bar */}
+                    <div className="mt-14 max-w-4xl mx-auto bg-slate-900/70 border border-slate-800 rounded-2xl p-4 backdrop-blur-md shadow-2xl">
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-left divide-y sm:divide-y-0 sm:divide-x divide-slate-800">
+                            <div className="p-2">
+                                <span className="text-xs text-slate-400 font-medium block">Server Target</span>
+                                <div className="flex items-center gap-2 mt-1">
+                                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                                    <span className="font-mono text-sm font-semibold text-white">147.93.85.120</span>
+                                </div>
+                                <span className="text-[11px] text-slate-400">Ubuntu 24.04 LTS (x86_64)</span>
+                            </div>
+                            <div className="p-2 sm:pl-4">
+                                <span className="text-xs text-slate-400 font-medium block">Web Server & PHP</span>
+                                <div className="flex items-center gap-2 mt-1">
+                                    <Globe className="w-3.5 h-3.5 text-cyan-400" />
+                                    <span className="text-sm font-semibold text-white">Nginx + PHP 8.4-FPM</span>
+                                </div>
+                                <span className="text-[11px] text-emerald-400 font-mono">Status: Active (Port 80/443)</span>
+                            </div>
+                            <div className="p-2 sm:pl-4">
+                                <span className="text-xs text-slate-400 font-medium block">Supervisor Daemons</span>
+                                <div className="flex items-center gap-2 mt-1">
+                                    <Radio className="w-3.5 h-3.5 text-indigo-400" />
+                                    <span className="text-sm font-semibold text-white">Queue & Reverb</span>
+                                </div>
+                                <span className="text-[11px] text-emerald-400">2/2 Processes Running</span>
+                            </div>
+                            <div className="p-2 sm:pl-4">
+                                <span className="text-xs text-slate-400 font-medium block">CI/CD Automation</span>
+                                <div className="flex items-center gap-2 mt-1">
+                                    <Zap className="w-3.5 h-3.5 text-amber-400" />
+                                    <span className="text-sm font-semibold text-white">GitHub Actions</span>
+                                </div>
+                                <span className="text-[11px] text-slate-400">Branch: main &rarr; Auto-Deploy</span>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                {/* Interactive 10-Step Deployment Studio */}
+                <section id="pipeline" className="py-20 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto border-t border-slate-800/80">
+                    <div className="text-center max-w-3xl mx-auto mb-12">
+                        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-cyan-500/10 text-cyan-300 text-xs font-semibold uppercase tracking-wider mb-3">
+                            <Sliders className="w-3.5 h-3.5" /> Interactive Automation Studio
+                        </div>
+                        <h2 className="text-3xl sm:text-4xl font-bold text-white tracking-tight">
+                            The 10 Manual Deployment Steps, Visualized
+                        </h2>
+                        <p className="mt-3 text-slate-400 text-base">
+                            Select any step from the deployment guide below to see how our GUI converts tedious terminal commands into interactive controls, automated scripts, and live verification.
+                        </p>
+                    </div>
+
+                    {/* Step selector horizontal tabs */}
+                    <div className="flex overflow-x-auto pb-4 gap-2.5 scrollbar-thin scrollbar-thumb-slate-800 mb-8">
+                        {steps.map((s) => {
+                            const IconComponent = s.icon;
+                            const isActive = activeStep === s.id;
+                            return (
+                                <button
+                                    key={s.id}
+                                    onClick={() => setActiveStep(s.id)}
+                                    className={`flex-shrink-0 flex items-center gap-3 px-4 py-3 rounded-xl border text-left transition-all ${
+                                        isActive
+                                            ? 'bg-indigo-600/20 border-indigo-500 text-white shadow-lg shadow-indigo-500/10'
+                                            : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200'
+                                    }`}
                                 >
                                     <div
-                                        id="screenshot-container"
-                                        className="relative flex w-full flex-1 items-stretch"
+                                        className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs ${
+                                            isActive ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-300'
+                                        }`}
                                     >
-                                        <img
-                                            src="https://laravel.com/assets/img/welcome/docs-light.svg"
-                                            alt="Laravel documentation screenshot"
-                                            className="aspect-video h-full w-full flex-1 rounded-[10px] object-cover object-top drop-shadow-[0px_4px_34px_rgba(0,0,0,0.06)] dark:hidden"
-                                            onError={handleImageError}
-                                        />
-                                        <img
-                                            src="https://laravel.com/assets/img/welcome/docs-dark.svg"
-                                            alt="Laravel documentation screenshot"
-                                            className="hidden aspect-video h-full w-full flex-1 rounded-[10px] object-cover object-top drop-shadow-[0px_4px_34px_rgba(0,0,0,0.25)] dark:block"
-                                        />
-                                        <div className="absolute -bottom-16 -left-16 h-40 w-[calc(100%+8rem)] bg-gradient-to-b from-transparent via-white to-white dark:via-zinc-900 dark:to-zinc-900"></div>
+                                        {s.id}
                                     </div>
+                                    <div>
+                                        <div className="text-xs font-bold whitespace-nowrap">{s.title}</div>
+                                        <div className="text-[10px] text-slate-400">{s.badge}</div>
+                                    </div>
+                                </button>
+                            );
+                        })}
+                    </div>
 
-                                    <div className="relative flex items-center gap-6 lg:items-end">
-                                        <div
-                                            id="docs-card-content"
-                                            className="flex items-start gap-6 lg:flex-col"
-                                        >
-                                            <div className="flex size-12 shrink-0 items-center justify-center rounded-full bg-[#FF2D20]/10 sm:size-16">
-                                                <svg
-                                                    className="size-5 sm:size-6"
-                                                    xmlns="http://www.w3.org/2000/svg"
-                                                    fill="none"
-                                                    viewBox="0 0 24 24"
+                    {/* Main Interactive Workstation for the Active Step */}
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+                        {/* Left column: Visual Step Form / Control panel */}
+                        <div className="lg:col-span-7 bg-[#0E131F] border border-slate-800 rounded-2xl p-6 sm:p-8 shadow-2xl relative overflow-hidden">
+                            <div className="flex items-center justify-between pb-6 border-b border-slate-800">
+                                <div>
+                                    <div className="flex items-center gap-2">
+                                        <span className="px-2.5 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 text-xs font-bold">
+                                            Step {activeStep} of 10
+                                        </span>
+                                        <span className="text-xs text-slate-400">{steps[activeStep - 1].badge}</span>
+                                    </div>
+                                    <h3 className="text-2xl font-bold text-white mt-1">
+                                        {steps[activeStep - 1].title}
+                                    </h3>
+                                    <p className="text-sm text-slate-400 mt-1">
+                                        {steps[activeStep - 1].description}
+                                    </p>
+                                </div>
+                            </div>
+
+                            {/* Dynamic Content based on Active Step */}
+                            <div className="mt-6 space-y-6">
+                                {activeStep === 1 && (
+                                    <div className="space-y-4">
+                                        <div className="p-4 rounded-xl bg-slate-900/90 border border-slate-800">
+                                            <label className="block text-xs font-semibold text-slate-300 mb-2">
+                                                Generated Public Deploy Key (~/.ssh/rhamify_app_deploy.pub)
+                                            </label>
+                                            <div className="flex items-center gap-2 bg-[#090C15] p-3 rounded-lg border border-slate-800 font-mono text-xs text-slate-300 break-all">
+                                                <span>ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHr9v1mH... rhamify-app-deploy</span>
+                                                <button
+                                                    onClick={() => copyToClipboard('ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHr9v1mH881o2Qn3L91xP rhamify-app-deploy')}
+                                                    className="ml-auto p-2 rounded-md hover:bg-slate-800 text-indigo-400 transition-colors flex-shrink-0"
+                                                    title="Copy Public Key"
                                                 >
-                                                    <path
-                                                        fill="#FF2D20"
-                                                        d="M23 4a1 1 0 0 0-1.447-.894L12.224 7.77a.5.5 0 0 1-.448 0L2.447 3.106A1 1 0 0 0 1 4v13.382a1.99 1.99 0 0 0 1.105 1.79l9.448 4.728c.14.065.293.1.447.1.154-.005.306-.04.447-.105l9.453-4.724a1.99 1.99 0 0 0 1.1-1.789V4ZM3 6.023a.25.25 0 0 1 .362-.223l7.5 3.75a.251.251 0 0 1 .138.223v11.2a.25.25 0 0 1-.362.224l-7.5-3.75a.25.25 0 0 1-.138-.22V6.023Zm18 11.2a.25.25 0 0 1-.138.224l-7.5 3.75a.249.249 0 0 1-.329-.099.249.249 0 0 1-.033-.12V9.772a.251.251 0 0 1 .138-.224l7.5-3.75a.25.25 0 0 1 .362.224v11.2Z"
-                                                    />
-                                                    <path
-                                                        fill="#FF2D20"
-                                                        d="m3.55 1.893 8 4.048a1.008 1.008 0 0 0 .9 0l8-4.048a1 1 0 0 0-.9-1.785l-7.322 3.706a.506.506 0 0 1-.452 0L4.454.108a1 1 0 0 0-.9 1.785H3.55Z"
-                                                    />
-                                                </svg>
+                                                    {copiedKey ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+                                                </button>
                                             </div>
+                                            <p className="text-[11px] text-slate-400 mt-2 flex items-center gap-1.5">
+                                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                                                Ready to add to GitHub Repository &rarr; Settings &rarr; Deploy Keys (Read-only).
+                                            </p>
+                                        </div>
 
-                                            <div className="pt-3 sm:pt-5 lg:pt-0">
-                                                <h2 className="text-xl font-semibold text-black dark:text-white">
-                                                    Documentation
-                                                </h2>
+                                        <div className="flex flex-wrap gap-3">
+                                            <button
+                                                onClick={() => runSimulation('Generate Deploy Key', [
+                                                    'ssh-keygen -t ed25519 -C "rhamify-app-deploy" -f ~/.ssh/rhamify_app_deploy -N ""',
+                                                    'cat ~/.ssh/rhamify_app_deploy.pub'
+                                                ])}
+                                                disabled={isSimulating}
+                                                className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-semibold transition-all flex items-center gap-2"
+                                            >
+                                                <Key className="w-4 h-4" />
+                                                Regenerate Keypair
+                                            </button>
+                                            <a
+                                                href="https://github.com"
+                                                target="_blank"
+                                                rel="noreferrer"
+                                                className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-sm font-medium transition-all flex items-center gap-2"
+                                            >
+                                                <span>Open GitHub Deploy Keys</span>
+                                                <ExternalLink className="w-3.5 h-3.5" />
+                                            </a>
+                                        </div>
+                                    </div>
+                                )}
 
-                                                <p className="mt-4 text-sm/relaxed">
-                                                    Laravel has wonderful
-                                                    documentation covering every
-                                                    aspect of the framework.
-                                                    Whether you are a newcomer
-                                                    or have prior experience
-                                                    with Laravel, we recommend
-                                                    reading our documentation
-                                                    from beginning to end.
-                                                </p>
+                                {activeStep === 2 && (
+                                    <div className="space-y-4">
+                                        <div className="p-4 rounded-xl bg-slate-900/90 border border-slate-800 space-y-3">
+                                            <div className="grid grid-cols-2 gap-3 text-xs">
+                                                <div>
+                                                    <span className="text-slate-400 font-medium">Host Alias</span>
+                                                    <input
+                                                        type="text"
+                                                        value="github-rhamify-app"
+                                                        readOnly
+                                                        className="w-full mt-1 px-3 py-2 bg-[#090C15] border border-slate-800 rounded-lg text-slate-200 font-mono text-xs"
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <span className="text-slate-400 font-medium">HostName</span>
+                                                    <input
+                                                        type="text"
+                                                        value="github.com"
+                                                        readOnly
+                                                        className="w-full mt-1 px-3 py-2 bg-[#090C15] border border-slate-800 rounded-lg text-slate-200 font-mono text-xs"
+                                                    />
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <span className="text-slate-400 text-xs font-medium">Identity File Location</span>
+                                                <input
+                                                    type="text"
+                                                    value="~/.ssh/rhamify_app_deploy"
+                                                    readOnly
+                                                    className="w-full mt-1 px-3 py-2 bg-[#090C15] border border-slate-800 rounded-lg text-slate-200 font-mono text-xs"
+                                                />
+                                            </div>
+                                            <div className="flex items-center justify-between pt-2">
+                                                <span className="text-xs text-slate-300">Auto-Apply chmod 600 ~/.ssh/config</span>
+                                                <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 text-xs font-mono">Enforced</span>
                                             </div>
                                         </div>
 
-                                        <svg
-                                            className="size-6 shrink-0 stroke-[#FF2D20]"
-                                            xmlns="http://www.w3.org/2000/svg"
-                                            fill="none"
-                                            viewBox="0 0 24 24"
-                                            strokeWidth="1.5"
+                                        <button
+                                            onClick={() => runSimulation('Configure SSH Alias', [
+                                                'echo "Host github-rhamify-app\n  HostName github.com\n  User git\n  IdentityFile ~/.ssh/rhamify_app_deploy\n  IdentitiesOnly yes" >> ~/.ssh/config',
+                                                'chmod 600 ~/.ssh/config'
+                                            ])}
+                                            disabled={isSimulating}
+                                            className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-semibold transition-all flex items-center gap-2"
                                         >
-                                            <path
-                                                strokeLinecap="round"
-                                                strokeLinejoin="round"
-                                                d="M4.5 12h15m0 0l-6.75-6.75M19.5 12l-6.75 6.75"
-                                            />
-                                        </svg>
+                                            <Sliders className="w-4 h-4" />
+                                            Apply SSH Host Configuration
+                                        </button>
                                     </div>
-                                </a>
+                                )}
 
-                                <a
-                                    href="https://laracasts.com"
-                                    className="flex items-start gap-4 rounded-lg bg-white p-6 shadow-[0px_14px_34px_0px_rgba(0,0,0,0.08)] ring-1 ring-white/[0.05] transition duration-300 hover:text-black/70 hover:ring-black/20 focus:outline-none focus-visible:ring-[#FF2D20] lg:pb-10 dark:bg-zinc-900 dark:ring-zinc-800 dark:hover:text-white/70 dark:hover:ring-zinc-700 dark:focus-visible:ring-[#FF2D20]"
+                                {activeStep === 3 && (
+                                    <div className="space-y-4">
+                                        <div className="p-4 rounded-xl bg-slate-900/90 border border-slate-800 space-y-3">
+                                            <div>
+                                                <label className="text-xs font-medium text-slate-300">Repository Clone URL</label>
+                                                <input
+                                                    type="text"
+                                                    value={repoUrl}
+                                                    onChange={(e) => setRepoUrl(e.target.value)}
+                                                    className="w-full mt-1 px-3 py-2 bg-[#090C15] border border-slate-800 rounded-lg text-indigo-300 font-mono text-xs focus:ring-1 focus:ring-indigo-500"
+                                                />
+                                            </div>
+                                            <div className="grid grid-cols-2 gap-3 text-xs">
+                                                <div>
+                                                    <span className="text-slate-400 font-medium">Target Directory</span>
+                                                    <input
+                                                        type="text"
+                                                        value="~/rhamify_app"
+                                                        readOnly
+                                                        className="w-full mt-1 px-3 py-2 bg-[#090C15] border border-slate-800 rounded-lg text-slate-200 font-mono text-xs"
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <span className="text-slate-400 font-medium">Git FileMode</span>
+                                                    <input
+                                                        type="text"
+                                                        value="core.fileMode = false"
+                                                        readOnly
+                                                        className="w-full mt-1 px-3 py-2 bg-[#090C15] border border-slate-800 rounded-lg text-emerald-400 font-mono text-xs"
+                                                    />
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <button
+                                            onClick={() => runSimulation('Clone Git Repository', [
+                                                'ssh -T git@github-rhamify-app',
+                                                `git clone ${repoUrl} ~/rhamify_app`,
+                                                'cd ~/rhamify_app && git config core.fileMode false'
+                                            ])}
+                                            disabled={isSimulating}
+                                            className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-semibold transition-all flex items-center gap-2"
+                                        >
+                                            <GitBranch className="w-4 h-4" />
+                                            Test SSH Handshake & Clone
+                                        </button>
+                                    </div>
+                                )}
+
+                                {activeStep === 4 && (
+                                    <div className="space-y-4">
+                                        <div className="p-4 rounded-xl bg-slate-900/90 border border-slate-800 space-y-3">
+                                            <div className="flex items-center justify-between">
+                                                <span className="text-xs font-semibold text-slate-300">Environment & Build Actions</span>
+                                                <span className="text-[11px] text-slate-400 font-mono">cp .env.example .env</span>
+                                            </div>
+                                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                                <div className="p-2.5 bg-[#090C15] rounded-lg border border-slate-800 text-xs">
+                                                    <div className="text-slate-400 font-medium">PHP Composer</div>
+                                                    <div className="text-emerald-400 font-mono mt-1 font-semibold">--no-dev --optimize</div>
+                                                </div>
+                                                <div className="p-2.5 bg-[#090C15] rounded-lg border border-slate-800 text-xs">
+                                                    <div className="text-slate-400 font-medium">App Key & Migrations</div>
+                                                    <div className="text-cyan-400 font-mono mt-1 font-semibold">artisan migrate --force</div>
+                                                </div>
+                                                <div className="p-2.5 bg-[#090C15] rounded-lg border border-slate-800 text-xs col-span-2 sm:col-span-1">
+                                                    <div className="text-slate-400 font-medium">Node & Frontend</div>
+                                                    <div className="text-indigo-400 font-mono mt-1 font-semibold">npm ci && npm run build</div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <button
+                                            onClick={() => runSimulation('Configure Environment & Dependencies', [
+                                                'cp .env.example .env',
+                                                'composer install --no-dev --optimize-autoloader',
+                                                'php artisan key:generate',
+                                                'php artisan migrate --force',
+                                                'php artisan storage:link',
+                                                'npm ci && npm run build'
+                                            ])}
+                                            disabled={isSimulating}
+                                            className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-semibold transition-all flex items-center gap-2"
+                                        >
+                                            <Database className="w-4 h-4" />
+                                            Execute Full Build Pipeline
+                                        </button>
+                                    </div>
+                                )}
+
+                                {activeStep === 5 && (
+                                    <div className="space-y-4">
+                                        <div className="p-4 rounded-xl bg-slate-900/90 border border-slate-800 space-y-3">
+                                            <div className="text-xs font-semibold text-slate-300">File & Web Server ACL Permissions</div>
+                                            <div className="space-y-2 text-xs font-mono text-slate-400">
+                                                <div className="p-2 bg-[#090C15] rounded border border-slate-800 flex items-center justify-between">
+                                                    <span>setfacl -m u:ploi:x ~/rhamify_app ~/rhamify_app/storage</span>
+                                                    <Check className="w-3.5 h-3.5 text-emerald-400" />
+                                                </div>
+                                                <div className="p-2 bg-[#090C15] rounded border border-slate-800 flex items-center justify-between">
+                                                    <span>setfacl -R -m u:ploi:rX ~/rhamify_app/public</span>
+                                                    <Check className="w-3.5 h-3.5 text-emerald-400" />
+                                                </div>
+                                                <div className="p-2 bg-[#090C15] rounded border border-slate-800 flex items-center justify-between">
+                                                    <span>chmod -R 775 ~/rhamify_app/storage bootstrap/cache</span>
+                                                    <Check className="w-3.5 h-3.5 text-emerald-400" />
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <button
+                                            onClick={() => runSimulation('Set File Permissions', [
+                                                'setfacl -m u:ploi:x ~/rhamify_app ~/rhamify_app/storage ~/rhamify_app/storage/app',
+                                                'setfacl -R -m u:ploi:rX ~/rhamify_app/public ~/rhamify_app/storage/app/public',
+                                                'setfacl -R -d -m u:ploi:rX ~/rhamify_app/public ~/rhamify_app/storage/app/public',
+                                                'chmod -R 775 ~/rhamify_app/storage ~/rhamify_app/bootstrap/cache'
+                                            ])}
+                                            disabled={isSimulating}
+                                            className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-semibold transition-all flex items-center gap-2"
+                                        >
+                                            <Shield className="w-4 h-4" />
+                                            Enforce Web Server Permissions
+                                        </button>
+                                    </div>
+                                )}
+
+                                {activeStep === 6 && (
+                                    <div className="space-y-4">
+                                        <div className="p-4 rounded-xl bg-slate-900/90 border border-slate-800 space-y-3">
+                                            <div className="grid grid-cols-2 gap-3 text-xs">
+                                                <div>
+                                                    <label className="text-slate-400 font-medium">PHP Version</label>
+                                                    <select
+                                                        value={phpVer}
+                                                        onChange={(e) => setPhpVer(e.target.value)}
+                                                        className="w-full mt-1 px-3 py-2 bg-[#090C15] border border-slate-800 rounded-lg text-slate-200 text-xs font-mono"
+                                                    >
+                                                        <option value="8.4">PHP 8.4 (Latest)</option>
+                                                        <option value="8.3">PHP 8.3</option>
+                                                        <option value="8.2">PHP 8.2</option>
+                                                    </select>
+                                                </div>
+                                                <div>
+                                                    <label className="text-slate-400 font-medium">Socket File</label>
+                                                    <input
+                                                        type="text"
+                                                        value="/run/php/rhamify_app-fpm.sock"
+                                                        readOnly
+                                                        className="w-full mt-1 px-3 py-2 bg-[#090C15] border border-slate-800 rounded-lg text-slate-200 text-xs font-mono"
+                                                    />
+                                                </div>
+                                            </div>
+                                            <div className="p-2.5 bg-[#090C15] rounded-lg border border-slate-800 text-[11px] font-mono text-slate-400">
+                                                File: /etc/php/{phpVer}/fpm/pool.d/rhamify_app.conf
+                                            </div>
+                                        </div>
+
+                                        <button
+                                            onClick={() => runSimulation('Configure PHP-FPM Pool', [
+                                                `sudo nano /etc/php/${phpVer}/fpm/pool.d/rhamify_app.conf`,
+                                                `sudo php-fpm${phpVer} -t`,
+                                                `sudo systemctl reload php${phpVer}-fpm`
+                                            ])}
+                                            disabled={isSimulating}
+                                            className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-semibold transition-all flex items-center gap-2"
+                                        >
+                                            <Cpu className="w-4 h-4" />
+                                            Validate Syntax & Reload PHP-FPM
+                                        </button>
+                                    </div>
+                                )}
+
+                                {activeStep === 7 && (
+                                    <div className="space-y-4">
+                                        <div className="p-4 rounded-xl bg-slate-900/90 border border-slate-800 space-y-3">
+                                            <div className="grid grid-cols-2 gap-3 text-xs">
+                                                <div>
+                                                    <label className="text-slate-400 font-medium">Domain Name</label>
+                                                    <input
+                                                        type="text"
+                                                        value={domain}
+                                                        onChange={(e) => setDomain(e.target.value)}
+                                                        className="w-full mt-1 px-3 py-2 bg-[#090C15] border border-slate-800 rounded-lg text-cyan-300 text-xs font-mono"
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="text-slate-400 font-medium">Web Root</label>
+                                                    <input
+                                                        type="text"
+                                                        value="/home/rhamifytechnology/rhamify_app/public"
+                                                        readOnly
+                                                        className="w-full mt-1 px-3 py-2 bg-[#090C15] border border-slate-800 rounded-lg text-slate-200 text-xs font-mono"
+                                                    />
+                                                </div>
+                                            </div>
+                                            <div className="p-2.5 bg-[#090C15] rounded-lg border border-slate-800 text-[11px] text-slate-400 flex items-center justify-between">
+                                                <span>Let's Encrypt Certbot SSL Auto-Renewal</span>
+                                                <span className="text-emerald-400 font-semibold font-mono">Hook: systemctl reload nginx</span>
+                                            </div>
+                                        </div>
+
+                                        <button
+                                            onClick={() => runSimulation('Configure Nginx & SSL Certificate', [
+                                                'sudo nginx -t',
+                                                `sudo certbot certonly --webroot -w /home/rhamifytechnology/rhamify_app/public -d ${domain} --deploy-hook "systemctl reload nginx"`
+                                            ])}
+                                            disabled={isSimulating}
+                                            className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-semibold transition-all flex items-center gap-2"
+                                        >
+                                            <Globe className="w-4 h-4" />
+                                            Deploy Nginx Site & Obtain SSL
+                                        </button>
+                                    </div>
+                                )}
+
+                                {activeStep === 8 && (
+                                    <div className="space-y-4">
+                                        <div className="p-4 rounded-xl bg-slate-900/90 border border-slate-800 space-y-3">
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                                                <div className="p-3 bg-[#090C15] rounded-lg border border-slate-800">
+                                                    <div className="font-semibold text-white flex items-center justify-between">
+                                                        <span>Queue Worker</span>
+                                                        <span className="text-emerald-400 font-mono text-[10px]">Autostart</span>
+                                                    </div>
+                                                    <p className="text-[11px] text-slate-400 mt-1 font-mono">
+                                                        artisan queue:work --sleep=3 --tries=3 --max-time=3600
+                                                    </p>
+                                                </div>
+                                                <div className="p-3 bg-[#090C15] rounded-lg border border-slate-800">
+                                                    <div className="font-semibold text-white flex items-center justify-between">
+                                                        <span>Laravel Reverb</span>
+                                                        <span className="text-cyan-400 font-mono text-[10px]">Port: {reverbPort}</span>
+                                                    </div>
+                                                    <p className="text-[11px] text-slate-400 mt-1 font-mono">
+                                                        artisan reverb:start --port={reverbPort}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <button
+                                            onClick={() => runSimulation('Configure Supervisor Processes', [
+                                                'sudo supervisorctl reread',
+                                                'sudo supervisorctl update',
+                                                'sudo supervisorctl status'
+                                            ])}
+                                            disabled={isSimulating}
+                                            className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-semibold transition-all flex items-center gap-2"
+                                        >
+                                            <Radio className="w-4 h-4" />
+                                            Supervisor Reread & Update
+                                        </button>
+                                    </div>
+                                )}
+
+                                {activeStep === 9 && (
+                                    <div className="space-y-4">
+                                        <div className="p-4 rounded-xl bg-slate-900/90 border border-slate-800 space-y-3">
+                                            <div className="flex items-center justify-between">
+                                                <span className="text-xs font-semibold text-slate-300">Deployment Script (~/rhamify_app/deploy.sh)</span>
+                                                <span className="text-emerald-400 text-xs font-mono font-medium">Executable (chmod +x)</span>
+                                            </div>
+                                            <div className="p-3 bg-[#090C15] rounded-lg border border-slate-800 font-mono text-[11px] text-slate-300 space-y-1">
+                                                <div className="text-indigo-400"># Pipeline Sequence:</div>
+                                                <div>1. php artisan down || true</div>
+                                                <div>2. git pull origin main</div>
+                                                <div>3. composer install --no-dev --optimize-autoloader</div>
+                                                <div>4. npm ci && npm run build</div>
+                                                <div>5. php artisan migrate --force && php artisan optimize</div>
+                                                <div>6. php artisan queue:restart && reverb:restart</div>
+                                                <div>7. php artisan up</div>
+                                            </div>
+                                        </div>
+
+                                        <button
+                                            onClick={() => runSimulation('Execute Auto-Deployment Script', [
+                                                'cd /home/rhamifytechnology/rhamify_app',
+                                                'bash deploy.sh'
+                                            ])}
+                                            disabled={isSimulating}
+                                            className="px-5 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-sm font-semibold transition-all flex items-center gap-2 shadow-lg shadow-emerald-600/20"
+                                        >
+                                            <Play className="w-4 h-4 fill-white" />
+                                            Simulate Full Production Deploy
+                                        </button>
+                                    </div>
+                                )}
+
+                                {activeStep === 10 && (
+                                    <div className="space-y-4">
+                                        <div className="p-4 rounded-xl bg-slate-900/90 border border-slate-800 space-y-3">
+                                            <div className="text-xs font-semibold text-slate-300">Required GitHub Actions Secrets</div>
+                                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs font-mono">
+                                                <div className="p-2.5 bg-[#090C15] rounded border border-slate-800">
+                                                    <span className="text-slate-400 block text-[10px]">Secret Name</span>
+                                                    <span className="text-amber-400 font-semibold">SSH_HOST</span>
+                                                    <span className="text-slate-400 block text-[10px] mt-0.5">{serverIp}</span>
+                                                </div>
+                                                <div className="p-2.5 bg-[#090C15] rounded border border-slate-800">
+                                                    <span className="text-slate-400 block text-[10px]">Secret Name</span>
+                                                    <span className="text-cyan-400 font-semibold">SSH_USER</span>
+                                                    <span className="text-slate-400 block text-[10px] mt-0.5">{sshUser}</span>
+                                                </div>
+                                                <div className="p-2.5 bg-[#090C15] rounded border border-slate-800">
+                                                    <span className="text-slate-400 block text-[10px]">Secret Name</span>
+                                                    <span className="text-indigo-400 font-semibold">SSH_KEY</span>
+                                                    <span className="text-emerald-400 block text-[10px] mt-0.5">Automated Sync</span>
+                                                </div>
+                                            </div>
+                                            <div className="p-2.5 bg-[#090C15] rounded border border-slate-800 text-[11px] text-slate-400">
+                                                Workflow triggers on <code className="text-indigo-300">push: branches: [main]</code> and executes remote deploy.sh securely over SSH.
+                                            </div>
+                                        </div>
+
+                                        <button
+                                            onClick={() => runSimulation('GitHub Actions Trigger', [
+                                                'git push origin main',
+                                                'SSH connection established with 147.93.85.120',
+                                                'Executing ~/rhamify_app/deploy.sh',
+                                                'All migrations and frontend assets deployed successfully!'
+                                            ])}
+                                            disabled={isSimulating}
+                                            className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-semibold transition-all flex items-center gap-2"
+                                        >
+                                            <Zap className="w-4 h-4" />
+                                            Simulate Push-To-Deploy
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Navigation between steps */}
+                            <div className="flex items-center justify-between pt-8 mt-8 border-t border-slate-800 text-xs font-semibold">
+                                <button
+                                    onClick={() => setActiveStep((prev) => Math.max(1, prev - 1))}
+                                    disabled={activeStep === 1}
+                                    className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-30 disabled:pointer-events-none text-slate-300 transition-colors"
                                 >
-                                    <div className="flex size-12 shrink-0 items-center justify-center rounded-full bg-[#FF2D20]/10 sm:size-16">
-                                        <svg
-                                            className="size-5 sm:size-6"
-                                            xmlns="http://www.w3.org/2000/svg"
-                                            fill="none"
-                                            viewBox="0 0 24 24"
-                                        >
-                                            <g fill="#FF2D20">
-                                                <path d="M24 8.25a.5.5 0 0 0-.5-.5H.5a.5.5 0 0 0-.5.5v12a2.5 2.5 0 0 0 2.5 2.5h19a2.5 2.5 0 0 0 2.5-2.5v-12Zm-7.765 5.868a1.221 1.221 0 0 1 0 2.264l-6.626 2.776A1.153 1.153 0 0 1 8 18.123v-5.746a1.151 1.151 0 0 1 1.609-1.035l6.626 2.776ZM19.564 1.677a.25.25 0 0 0-.177-.427H15.6a.106.106 0 0 0-.072.03l-4.54 4.543a.25.25 0 0 0 .177.427h3.783c.027 0 .054-.01.073-.03l4.543-4.543ZM22.071 1.318a.047.047 0 0 0-.045.013l-4.492 4.492a.249.249 0 0 0 .038.385.25.25 0 0 0 .14.042h5.784a.5.5 0 0 0 .5-.5v-2a2.5 2.5 0 0 0-1.925-2.432ZM13.014 1.677a.25.25 0 0 0-.178-.427H9.101a.106.106 0 0 0-.073.03l-4.54 4.543a.25.25 0 0 0 .177.427H8.4a.106.106 0 0 0 .073-.03l4.54-4.543ZM6.513 1.677a.25.25 0 0 0-.177-.427H2.5A2.5 2.5 0 0 0 0 3.75v2a.5.5 0 0 0 .5.5h1.4a.106.106 0 0 0 .073-.03l4.54-4.543Z" />
-                                            </g>
-                                        </svg>
-                                    </div>
-
-                                    <div className="pt-3 sm:pt-5">
-                                        <h2 className="text-xl font-semibold text-black dark:text-white">
-                                            Laracasts
-                                        </h2>
-
-                                        <p className="mt-4 text-sm/relaxed">
-                                            Laracasts offers thousands of video
-                                            tutorials on Laravel, PHP, and
-                                            JavaScript development. Check them
-                                            out, see for yourself, and massively
-                                            level up your development skills in
-                                            the process.
-                                        </p>
-                                    </div>
-
-                                    <svg
-                                        className="size-6 shrink-0 self-center stroke-[#FF2D20]"
-                                        xmlns="http://www.w3.org/2000/svg"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        strokeWidth="1.5"
-                                    >
-                                        <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            d="M4.5 12h15m0 0l-6.75-6.75M19.5 12l-6.75 6.75"
-                                        />
-                                    </svg>
-                                </a>
-
-                                <a
-                                    href="https://laravel-news.com"
-                                    className="flex items-start gap-4 rounded-lg bg-white p-6 shadow-[0px_14px_34px_0px_rgba(0,0,0,0.08)] ring-1 ring-white/[0.05] transition duration-300 hover:text-black/70 hover:ring-black/20 focus:outline-none focus-visible:ring-[#FF2D20] lg:pb-10 dark:bg-zinc-900 dark:ring-zinc-800 dark:hover:text-white/70 dark:hover:ring-zinc-700 dark:focus-visible:ring-[#FF2D20]"
+                                    &larr; Previous Step
+                                </button>
+                                <span className="text-slate-400">Step {activeStep} of 10</span>
+                                <button
+                                    onClick={() => setActiveStep((prev) => Math.min(10, prev + 1))}
+                                    disabled={activeStep === 10}
+                                    className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-30 disabled:pointer-events-none text-white transition-colors"
                                 >
-                                    <div className="flex size-12 shrink-0 items-center justify-center rounded-full bg-[#FF2D20]/10 sm:size-16">
-                                        <svg
-                                            className="size-5 sm:size-6"
-                                            xmlns="http://www.w3.org/2000/svg"
-                                            fill="none"
-                                            viewBox="0 0 24 24"
-                                        >
-                                            <g fill="#FF2D20">
-                                                <path d="M8.75 4.5H5.5c-.69 0-1.25.56-1.25 1.25v4.75c0 .69.56 1.25 1.25 1.25h3.25c.69 0 1.25-.56 1.25-1.25V5.75c0-.69-.56-1.25-1.25-1.25Z" />
-                                                <path d="M24 10a3 3 0 0 0-3-3h-2V2.5a2 2 0 0 0-2-2H2a2 2 0 0 0-2 2V20a3.5 3.5 0 0 0 3.5 3.5h17A3.5 3.5 0 0 0 24 20V10ZM3.5 21.5A1.5 1.5 0 0 1 2 20V3a.5.5 0 0 1 .5-.5h14a.5.5 0 0 1 .5.5v17c0 .295.037.588.11.874a.5.5 0 0 1-.484.625L3.5 21.5ZM22 20a1.5 1.5 0 1 1-3 0V9.5a.5.5 0 0 1 .5-.5H21a1 1 0 0 1 1 1v10Z" />
-                                                <path d="M12.751 6.047h2a.75.75 0 0 1 .75.75v.5a.75.75 0 0 1-.75.75h-2A.75.75 0 0 1 12 7.3v-.5a.75.75 0 0 1 .751-.753ZM12.751 10.047h2a.75.75 0 0 1 .75.75v.5a.75.75 0 0 1-.75.75h-2A.75.75 0 0 1 12 11.3v-.5a.75.75 0 0 1 .751-.753ZM4.751 14.047h10a.75.75 0 0 1 .75.75v.5a.75.75 0 0 1-.75.75h-10A.75.75 0 0 1 4 15.3v-.5a.75.75 0 0 1 .751-.753ZM4.75 18.047h7.5a.75.75 0 0 1 .75.75v.5a.75.75 0 0 1-.75.75h-7.5A.75.75 0 0 1 4 19.3v-.5a.75.75 0 0 1 .75-.753Z" />
-                                            </g>
-                                        </svg>
-                                    </div>
+                                    Next Step &rarr;
+                                </button>
+                            </div>
+                        </div>
 
-                                    <div className="pt-3 sm:pt-5">
-                                        <h2 className="text-xl font-semibold text-black dark:text-white">
-                                            Laravel News
-                                        </h2>
-
-                                        <p className="mt-4 text-sm/relaxed">
-                                            Laravel News is a community driven
-                                            portal and newsletter aggregating
-                                            all of the latest and most important
-                                            news in the Laravel ecosystem,
-                                            including new package releases and
-                                            tutorials.
-                                        </p>
-                                    </div>
-
-                                    <svg
-                                        className="size-6 shrink-0 self-center stroke-[#FF2D20]"
-                                        xmlns="http://www.w3.org/2000/svg"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        strokeWidth="1.5"
-                                    >
-                                        <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            d="M4.5 12h15m0 0l-6.75-6.75M19.5 12l-6.75 6.75"
-                                        />
-                                    </svg>
-                                </a>
-
-                                <div className="flex items-start gap-4 rounded-lg bg-white p-6 shadow-[0px_14px_34px_0px_rgba(0,0,0,0.08)] ring-1 ring-white/[0.05] lg:pb-10 dark:bg-zinc-900 dark:ring-zinc-800">
-                                    <div className="flex size-12 shrink-0 items-center justify-center rounded-full bg-[#FF2D20]/10 sm:size-16">
-                                        <svg
-                                            className="size-5 sm:size-6"
-                                            xmlns="http://www.w3.org/2000/svg"
-                                            fill="none"
-                                            viewBox="0 0 24 24"
-                                        >
-                                            <g fill="#FF2D20">
-                                                <path d="M16.597 12.635a.247.247 0 0 0-.08-.237 2.234 2.234 0 0 1-.769-1.68c.001-.195.03-.39.084-.578a.25.25 0 0 0-.09-.267 8.8 8.8 0 0 0-4.826-1.66.25.25 0 0 0-.268.181 2.5 2.5 0 0 1-2.4 1.824.045.045 0 0 0-.045.037 12.255 12.255 0 0 0-.093 3.86.251.251 0 0 0 .208.214c2.22.366 4.367 1.08 6.362 2.118a.252.252 0 0 0 .32-.079 10.09 10.09 0 0 0 1.597-3.733ZM13.616 17.968a.25.25 0 0 0-.063-.407A19.697 19.697 0 0 0 8.91 15.98a.25.25 0 0 0-.287.325c.151.455.334.898.548 1.328.437.827.981 1.594 1.619 2.28a.249.249 0 0 0 .32.044 29.13 29.13 0 0 0 2.506-1.99ZM6.303 14.105a.25.25 0 0 0 .265-.274 13.048 13.048 0 0 1 .205-4.045.062.062 0 0 0-.022-.07 2.5 2.5 0 0 1-.777-.982.25.25 0 0 0-.271-.149 11 11 0 0 0-5.6 2.815.255.255 0 0 0-.075.163c-.008.135-.02.27-.02.406.002.8.084 1.598.246 2.381a.25.25 0 0 0 .303.193 19.924 19.924 0 0 1 5.746-.438ZM9.228 20.914a.25.25 0 0 0 .1-.393 11.53 11.53 0 0 1-1.5-2.22 12.238 12.238 0 0 1-.91-2.465.248.248 0 0 0-.22-.187 18.876 18.876 0 0 0-5.69.33.249.249 0 0 0-.179.336c.838 2.142 2.272 4 4.132 5.353a.254.254 0 0 0 .15.048c1.41-.01 2.807-.282 4.117-.802ZM18.93 12.957l-.005-.008a.25.25 0 0 0-.268-.082 2.21 2.21 0 0 1-.41.081.25.25 0 0 0-.217.2c-.582 2.66-2.127 5.35-5.75 7.843a.248.248 0 0 0-.09.299.25.25 0 0 0 .065.091 28.703 28.703 0 0 0 2.662 2.12.246.246 0 0 0 .209.037c2.579-.701 4.85-2.242 6.456-4.378a.25.25 0 0 0 .048-.189 13.51 13.51 0 0 0-2.7-6.014ZM5.702 7.058a.254.254 0 0 0 .2-.165A2.488 2.488 0 0 1 7.98 5.245a.093.093 0 0 0 .078-.062 19.734 19.734 0 0 1 3.055-4.74.25.25 0 0 0-.21-.41 12.009 12.009 0 0 0-10.4 8.558.25.25 0 0 0 .373.281 12.912 12.912 0 0 1 4.826-1.814ZM10.773 22.052a.25.25 0 0 0-.28-.046c-.758.356-1.55.635-2.365.833a.25.25 0 0 0-.022.48c1.252.43 2.568.65 3.893.65.1 0 .2 0 .3-.008a.25.25 0 0 0 .147-.444c-.526-.424-1.1-.917-1.673-1.465ZM18.744 8.436a.249.249 0 0 0 .15.228 2.246 2.246 0 0 1 1.352 2.054c0 .337-.08.67-.23.972a.25.25 0 0 0 .042.28l.007.009a15.016 15.016 0 0 1 2.52 4.6.25.25 0 0 0 .37.132.25.25 0 0 0 .096-.114c.623-1.464.944-3.039.945-4.63a12.005 12.005 0 0 0-5.78-10.258.25.25 0 0 0-.373.274c.547 2.109.85 4.274.901 6.453ZM9.61 5.38a.25.25 0 0 0 .08.31c.34.24.616.561.8.935a.25.25 0 0 0 .3.127.631.631 0 0 1 .206-.034c2.054.078 4.036.772 5.69 1.991a.251.251 0 0 0 .267.024c.046-.024.093-.047.141-.067a.25.25 0 0 0 .151-.23A29.98 29.98 0 0 0 15.957.764a.25.25 0 0 0-.16-.164 11.924 11.924 0 0 0-2.21-.518.252.252 0 0 0-.215.076A22.456 22.456 0 0 0 9.61 5.38Z" />
-                                            </g>
-                                        </svg>
-                                    </div>
-
-                                    <div className="pt-3 sm:pt-5">
-                                        <h2 className="text-xl font-semibold text-black dark:text-white">
-                                            Vibrant Ecosystem
-                                        </h2>
-
-                                        <p className="mt-4 text-sm/relaxed">
-                                            Laravel's robust library of
-                                            first-party tools and libraries,
-                                            such as{' '}
-                                            <a
-                                                href="https://forge.laravel.com"
-                                                className="rounded-sm underline hover:text-black focus:outline-none focus-visible:ring-1 focus-visible:ring-[#FF2D20] dark:hover:text-white dark:focus-visible:ring-[#FF2D20]"
-                                            >
-                                                Forge
-                                            </a>
-                                            ,{' '}
-                                            <a
-                                                href="https://vapor.laravel.com"
-                                                className="rounded-sm underline hover:text-black focus:outline-none focus-visible:ring-1 focus-visible:ring-[#FF2D20] dark:hover:text-white"
-                                            >
-                                                Vapor
-                                            </a>
-                                            ,{' '}
-                                            <a
-                                                href="https://nova.laravel.com"
-                                                className="rounded-sm underline hover:text-black focus:outline-none focus-visible:ring-1 focus-visible:ring-[#FF2D20] dark:hover:text-white"
-                                            >
-                                                Nova
-                                            </a>
-                                            ,{' '}
-                                            <a
-                                                href="https://envoyer.io"
-                                                className="rounded-sm underline hover:text-black focus:outline-none focus-visible:ring-1 focus-visible:ring-[#FF2D20] dark:hover:text-white"
-                                            >
-                                                Envoyer
-                                            </a>
-                                            , and{' '}
-                                            <a
-                                                href="https://herd.laravel.com"
-                                                className="rounded-sm underline hover:text-black focus:outline-none focus-visible:ring-1 focus-visible:ring-[#FF2D20] dark:hover:text-white"
-                                            >
-                                                Herd
-                                            </a>{' '}
-                                            help you take your projects to the
-                                            next level. Pair them with powerful
-                                            open source libraries like{' '}
-                                            <a
-                                                href="https://laravel.com/docs/billing"
-                                                className="rounded-sm underline hover:text-black focus:outline-none focus-visible:ring-1 focus-visible:ring-[#FF2D20] dark:hover:text-white"
-                                            >
-                                                Cashier
-                                            </a>
-                                            ,{' '}
-                                            <a
-                                                href="https://laravel.com/docs/dusk"
-                                                className="rounded-sm underline hover:text-black focus:outline-none focus-visible:ring-1 focus-visible:ring-[#FF2D20] dark:hover:text-white"
-                                            >
-                                                Dusk
-                                            </a>
-                                            ,{' '}
-                                            <a
-                                                href="https://laravel.com/docs/broadcasting"
-                                                className="rounded-sm underline hover:text-black focus:outline-none focus-visible:ring-1 focus-visible:ring-[#FF2D20] dark:hover:text-white"
-                                            >
-                                                Echo
-                                            </a>
-                                            ,{' '}
-                                            <a
-                                                href="https://laravel.com/docs/horizon"
-                                                className="rounded-sm underline hover:text-black focus:outline-none focus-visible:ring-1 focus-visible:ring-[#FF2D20] dark:hover:text-white"
-                                            >
-                                                Horizon
-                                            </a>
-                                            ,{' '}
-                                            <a
-                                                href="https://laravel.com/docs/sanctum"
-                                                className="rounded-sm underline hover:text-black focus:outline-none focus-visible:ring-1 focus-visible:ring-[#FF2D20] dark:hover:text-white"
-                                            >
-                                                Sanctum
-                                            </a>
-                                            ,{' '}
-                                            <a
-                                                href="https://laravel.com/docs/telescope"
-                                                className="rounded-sm underline hover:text-black focus:outline-none focus-visible:ring-1 focus-visible:ring-[#FF2D20] dark:hover:text-white"
-                                            >
-                                                Telescope
-                                            </a>
-                                            , and more.
-                                        </p>
-                                    </div>
+                        {/* Right column: Simulated Remote Execution Terminal */}
+                        <div className="lg:col-span-5 bg-[#07090E] border border-slate-800 rounded-2xl overflow-hidden shadow-2xl flex flex-col h-[560px]">
+                            <div className="px-4 py-3 bg-[#0B0F17] border-b border-slate-800 flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                    <div className="w-3 h-3 rounded-full bg-rose-500/80" />
+                                    <div className="w-3 h-3 rounded-full bg-amber-500/80" />
+                                    <div className="w-3 h-3 rounded-full bg-emerald-500/80" />
+                                    <span className="text-xs font-mono text-slate-400 ml-2">
+                                        ssh://{sshUser}@{serverIp}:22
+                                    </span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    {isSimulating && (
+                                        <RefreshCw className="w-3.5 h-3.5 text-indigo-400 animate-spin" />
+                                    )}
+                                    <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300">
+                                        Live Stream
+                                    </span>
                                 </div>
                             </div>
-                        </main>
 
-                        <footer className="py-16 text-center text-sm text-black dark:text-white/70">
-                            Laravel v{laravelVersion} (PHP v{phpVersion})
-                        </footer>
+                            <div className="p-4 font-mono text-xs flex-1 overflow-y-auto space-y-2 text-slate-300 scrollbar-thin scrollbar-thumb-slate-800">
+                                <div className="text-slate-400"># Antigravity VPS Automation Console v2.0</div>
+                                <div className="text-slate-400"># Connected to Ubuntu 24.04.1 LTS (GNU/Linux 6.8.0-40-generic)</div>
+                                <div className="text-emerald-400/90">&radic; SSH Host Key Verified [ed25519-sha256]</div>
+                                <div className="border-b border-slate-800/80 my-2" />
+
+                                {simulatedLogs.length === 0 ? (
+                                    <div className="py-8 text-center text-slate-400">
+                                        <Terminal className="w-8 h-8 mx-auto text-slate-700 mb-2" />
+                                        <p>Click any action button on the left to simulate remote VPS execution and watch live stream logs.</p>
+                                    </div>
+                                ) : (
+                                    simulatedLogs.map((log, index) => {
+                                        const isCmd = log.startsWith('[CMD]');
+                                        const isSuccess = log.startsWith('[SUCCESS]');
+                                        const isStatus = log.startsWith('[STATUS]');
+                                        return (
+                                            <div
+                                                key={index}
+                                                className={`leading-relaxed ${
+                                                    isCmd
+                                                        ? 'text-cyan-300 font-semibold'
+                                                        : isSuccess
+                                                        ? 'text-emerald-400'
+                                                        : isStatus
+                                                        ? 'text-indigo-400 font-bold'
+                                                        : 'text-slate-300'
+                                                }`}
+                                            >
+                                                {log}
+                                            </div>
+                                        );
+                                    })
+                                )}
+                            </div>
+
+                            <div className="p-3 bg-[#0B0F17] border-t border-slate-800 text-[11px] text-slate-400 flex items-center justify-between">
+                                <span>Output Buffer: 4096 bytes</span>
+                                <button
+                                    onClick={() => setSimulatedLogs([])}
+                                    className="hover:text-white transition-colors"
+                                >
+                                    Clear Terminal
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                {/* Manual Pain vs Visual GUI Comparison Matrix */}
+                <section id="comparison" className="py-20 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto border-t border-slate-800/80">
+                    <div className="text-center max-w-3xl mx-auto mb-16">
+                        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-500/10 text-rose-300 text-xs font-semibold uppercase tracking-wider mb-3">
+                            The Paradigm Shift
+                        </div>
+                        <h2 className="text-3xl sm:text-4xl font-bold text-white tracking-tight">
+                            Manual Terminal Headaches vs Automated Visual GUI
+                        </h2>
+                        <p className="mt-3 text-slate-400 text-base">
+                            Why developers waste hours on syntax typos, permission locks, and configuration drift when managing remote servers manually.
+                        </p>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                        {/* The Manual Terminal Way */}
+                        <div className="bg-rose-950/10 border border-rose-900/30 rounded-2xl p-6 sm:p-8 relative">
+                            <div className="flex items-center gap-3 mb-6">
+                                <div className="w-10 h-10 rounded-xl bg-rose-500/20 text-rose-400 flex items-center justify-center font-bold">
+                                    &times;
+                                </div>
+                                <div>
+                                    <h3 className="text-xl font-bold text-white">Manual Terminal Workflow</h3>
+                                    <span className="text-xs text-rose-300/80">Error-prone, slow, and repetitive</span>
+                                </div>
+                            </div>
+
+                            <ul className="space-y-4 text-sm text-slate-300">
+                                <li className="flex items-start gap-3">
+                                    <div className="w-5 h-5 rounded-full bg-rose-900/50 text-rose-400 flex items-center justify-center flex-shrink-0 mt-0.5 text-xs font-bold">1</div>
+                                    <span>Manually generating SSH deploy keys and editing <code className="text-rose-300">~/.ssh/config</code> with potential permission crashes (chmod 600).</span>
+                                </li>
+                                <li className="flex items-start gap-3">
+                                    <div className="w-5 h-5 rounded-full bg-rose-900/50 text-rose-400 flex items-center justify-center flex-shrink-0 mt-0.5 text-xs font-bold">2</div>
+                                    <span>Typing complex ACL permission syntax like <code className="text-rose-300">setfacl -m u:ploi:x ...</code> to allow web server access without 500 errors.</span>
+                                </li>
+                                <li className="flex items-start gap-3">
+                                    <div className="w-5 h-5 rounded-full bg-rose-900/50 text-rose-400 flex items-center justify-center flex-shrink-0 mt-0.5 text-xs font-bold">3</div>
+                                    <span>Editing PHP-FPM pool files in <code className="text-rose-300">nano</code> and risking downtime if syntax check fails during production traffic.</span>
+                                </li>
+                                <li className="flex items-start gap-3">
+                                    <div className="w-5 h-5 rounded-full bg-rose-900/50 text-rose-400 flex items-center justify-center flex-shrink-0 mt-0.5 text-xs font-bold">4</div>
+                                    <span>Manually setting up Supervisor ini config files for Queue Workers & Laravel Reverb WebSockets.</span>
+                                </li>
+                                <li className="flex items-start gap-3">
+                                    <div className="w-5 h-5 rounded-full bg-rose-900/50 text-rose-400 flex items-center justify-center flex-shrink-0 mt-0.5 text-xs font-bold">5</div>
+                                    <span>Writing custom bash scripts with traps for maintenance mode toggles without any visual execution status.</span>
+                                </li>
+                            </ul>
+                        </div>
+
+                        {/* The GUI Automated Way */}
+                        <div className="bg-indigo-950/20 border border-indigo-500/30 rounded-2xl p-6 sm:p-8 relative shadow-2xl">
+                            <div className="flex items-center gap-3 mb-6">
+                                <div className="w-10 h-10 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center font-bold">
+                                    &check;
+                                </div>
+                                <div>
+                                    <h3 className="text-xl font-bold text-white">Visual Management Platform</h3>
+                                    <span className="text-xs text-indigo-300">100% automated, verified, and safe</span>
+                                </div>
+                            </div>
+
+                            <ul className="space-y-4 text-sm text-slate-300">
+                                <li className="flex items-start gap-3">
+                                    <div className="w-5 h-5 rounded-full bg-indigo-600/30 text-indigo-400 flex items-center justify-center flex-shrink-0 mt-0.5 text-xs font-bold">1</div>
+                                    <span><strong>1-Click Keypair Generator:</strong> Automatic ed25519 generation, host aliasing, and 1-click clipboard copy for GitHub.</span>
+                                </li>
+                                <li className="flex items-start gap-3">
+                                    <div className="w-5 h-5 rounded-full bg-indigo-600/30 text-indigo-400 flex items-center justify-center flex-shrink-0 mt-0.5 text-xs font-bold">2</div>
+                                    <span><strong>Automated ACL & Permission Guard:</strong> One click enforces correct Nginx user permissions and storage/cache chmod.</span>
+                                </li>
+                                <li className="flex items-start gap-3">
+                                    <div className="w-5 h-5 rounded-full bg-indigo-600/30 text-indigo-400 flex items-center justify-center flex-shrink-0 mt-0.5 text-xs font-bold">3</div>
+                                    <span><strong>Visual PHP-FPM & Nginx Configurator:</strong> Select PHP 8.4, click test syntax, reload with zero downtime.</span>
+                                </li>
+                                <li className="flex items-start gap-3">
+                                    <div className="w-5 h-5 rounded-full bg-indigo-600/30 text-indigo-400 flex items-center justify-center flex-shrink-0 mt-0.5 text-xs font-bold">4</div>
+                                    <span><strong>Supervisor Process Monitor:</strong> Toggle queue workers and WebSockets with visual start/stop/restart controls.</span>
+                                </li>
+                                <li className="flex items-start gap-3">
+                                    <div className="w-5 h-5 rounded-full bg-indigo-600/30 text-indigo-400 flex items-center justify-center flex-shrink-0 mt-0.5 text-xs font-bold">5</div>
+                                    <span><strong>Push-to-Deploy CI/CD:</strong> Auto-generates GitHub Actions workflows and runs zero-downtime deploy.sh with live logs.</span>
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
+                </section>
+
+                {/* Architecture & Core Components */}
+                <section id="architecture" className="py-20 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto border-t border-slate-800/80">
+                    <div className="text-center max-w-3xl mx-auto mb-16">
+                        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-300 text-xs font-semibold uppercase tracking-wider mb-3">
+                            System Architecture
+                        </div>
+                        <h2 className="text-3xl sm:text-4xl font-bold text-white tracking-tight">
+                            How Your Platform Operates
+                        </h2>
+                        <p className="mt-3 text-slate-400 text-base">
+                            Built on Laravel, React, and MySQL, coordinating remote server automation over encrypted SSH.
+                        </p>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                        <div className="bg-[#0E131F] border border-slate-800 rounded-2xl p-6 relative">
+                            <div className="w-12 h-12 rounded-xl bg-indigo-500/10 text-indigo-400 flex items-center justify-center mb-5">
+                                <Layers className="w-6 h-6" />
+                            </div>
+                            <h3 className="text-lg font-bold text-white mb-2">1. Control Panel GUI</h3>
+                            <p className="text-sm text-slate-400 leading-relaxed">
+                                React + Inertia.js interface for managing remote servers, file trees, .env configuration, real-time command streaming, and deployment history.
+                            </p>
+                        </div>
+
+                        <div className="bg-[#0E131F] border border-slate-800 rounded-2xl p-6 relative">
+                            <div className="w-12 h-12 rounded-xl bg-cyan-500/10 text-cyan-400 flex items-center justify-center mb-5">
+                                <Activity className="w-6 h-6" />
+                            </div>
+                            <h3 className="text-lg font-bold text-white mb-2">2. Laravel Job Queue & SSH</h3>
+                            <p className="text-sm text-slate-400 leading-relaxed">
+                                Asynchronous Laravel workers dispatch remote SSH jobs, safely encrypt private keys, handle timeouts, and stream live terminal outputs to the UI.
+                            </p>
+                        </div>
+
+                        <div className="bg-[#0E131F] border border-slate-800 rounded-2xl p-6 relative">
+                            <div className="w-12 h-12 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center mb-5">
+                                <Server className="w-6 h-6" />
+                            </div>
+                            <h3 className="text-lg font-bold text-white mb-2">3. Customer's Remote VPS</h3>
+                            <p className="text-sm text-slate-400 leading-relaxed">
+                                Remains 100% under customer ownership. Runs Ubuntu/Debian, Nginx, PHP-FPM, Supervisor, and executes atomic deployment jobs seamlessly.
+                            </p>
+                        </div>
+                    </div>
+                </section>
+
+                {/* Final Call to Action */}
+                <section className="py-20 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
+                    <div className="relative rounded-3xl bg-gradient-to-r from-indigo-900/40 via-purple-900/30 to-slate-900/60 border border-indigo-500/30 p-10 sm:p-16 text-center overflow-hidden shadow-2xl">
+                        <div className="relative z-10 max-w-3xl mx-auto">
+                            <h2 className="text-3xl sm:text-5xl font-extrabold text-white tracking-tight">
+                                Ready to Turn Manual VPS Deployment Into a Smooth Visual Experience?
+                            </h2>
+                            <p className="mt-4 text-base sm:text-lg text-indigo-200/90 leading-relaxed">
+                                Connect your first VPS, generate your deploy keys, configure your Nginx domain, and launch automated GitHub deployments in minutes.
+                            </p>
+                            <div className="mt-8 flex flex-wrap items-center justify-center gap-4">
+                                <Link
+                                    href={auth?.user ? route('dashboard') : route('register')}
+                                    className="px-8 py-4 rounded-xl bg-white text-indigo-950 hover:bg-slate-100 font-bold text-base transition-all shadow-xl shadow-white/10 flex items-center gap-2"
+                                >
+                                    <span>Get Started Now</span>
+                                    <ArrowRight className="w-4 h-4" />
+                                </Link>
+                                <Link
+                                    href={route('login')}
+                                    className="px-8 py-4 rounded-xl bg-slate-900/80 hover:bg-slate-800 border border-slate-700 text-slate-200 font-bold text-base transition-all"
+                                >
+                                    Sign In to Control Panel
+                                </Link>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </main>
+
+            {/* Footer */}
+            <footer className="border-t border-slate-800/80 bg-[#080B12] py-12 px-4 sm:px-6 lg:px-8 text-center text-xs text-slate-400">
+                <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
+                    <div className="flex items-center gap-2 font-semibold text-slate-300">
+                        <Server className="w-4 h-4 text-indigo-400" />
+                        <span>VPS Deploy GUI &bull; Automated Infrastructure Platform</span>
+                    </div>
+                    <div>
+                        Powered by Laravel v{laravelVersion} (PHP v{phpVersion}) &bull; React &bull; MySQL
                     </div>
                 </div>
-            </div>
-        </>
+            </footer>
+        </div>
     );
 }
