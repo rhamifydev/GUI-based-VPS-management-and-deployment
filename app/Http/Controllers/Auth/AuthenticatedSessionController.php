@@ -19,8 +19,9 @@ class AuthenticatedSessionController extends Controller
     public function create(): Response
     {
         return Inertia::render('Auth/Login', [
-            'canResetPassword' => Route::has('password.request'),
+            'githubConfigured' => !empty(config('services.github.client_id')) && !empty(config('services.github.client_secret')),
             'status' => session('status'),
+            'error' => session('error'),
         ]);
     }
 

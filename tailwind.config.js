@@ -13,8 +13,10 @@ export default {
     theme: {
         extend: {
             fontFamily: {
-                sans: ['Inter', ...defaultTheme.fontFamily.sans],
+                sans: ['"Plus Jakarta Sans"', 'Inter', ...defaultTheme.fontFamily.sans],
+                heading: ['Outfit', 'sans-serif'],
                 mono: ['"JetBrains Mono"', ...defaultTheme.fontFamily.mono],
+                lobster: ['Lobster', 'cursive'],
             },
         },
     },

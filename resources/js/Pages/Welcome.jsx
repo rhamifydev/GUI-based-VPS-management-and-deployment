@@ -202,7 +202,7 @@ export default function Welcome({ auth, laravelVersion, phpVersion }) {
                                     Log in
                                 </Link>
                                 <Link
-                                    href={route('register')}
+                                    href={route('login')}
                                     className="px-3 py-1.5 sm:px-5 sm:py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 text-white font-medium text-xs sm:text-sm whitespace-nowrap transition-all shadow-md sm:shadow-lg shadow-indigo-500/25 flex items-center gap-1 sm:gap-2"
                                 >
                                     <span>Get Started</span>
@@ -257,7 +257,7 @@ export default function Welcome({ auth, laravelVersion, phpVersion }) {
                         <span>Automating the 10-Step VPS Deployment Guide into a Visual Interface</span>
                     </div>
 
-                    <h1 className="text-4xl sm:text-6xl lg:text-7xl font-extrabold tracking-tight text-white max-w-5xl mx-auto leading-[1.12]">
+                    <h1 className="font-lobster text-4xl sm:text-6xl lg:text-7xl tracking-wide font-normal text-white max-w-5xl mx-auto leading-[1.25]">
                         Deploy & Manage Remote VPS Servers{' '}
                         <span className="bg-gradient-to-r from-indigo-400 via-cyan-400 to-emerald-400 bg-clip-text text-transparent">
                             Without Repeated Terminal Commands
@@ -277,7 +277,7 @@ export default function Welcome({ auth, laravelVersion, phpVersion }) {
                             <span>Try Interactive 10-Step Studio</span>
                         </a>
                         <Link
-                            href={auth?.user ? route('dashboard') : route('register')}
+                            href={auth?.user ? route('dashboard') : route('login')}
                             className="px-7 py-3.5 rounded-xl bg-slate-900/90 hover:bg-slate-800 border border-slate-700/80 text-slate-200 font-semibold text-base transition-all flex items-center gap-2"
                         >
                             <Server className="w-4 h-4 text-cyan-400" />
@@ -1063,10 +1063,10 @@ export default function Welcome({ auth, laravelVersion, phpVersion }) {
                             </p>
                             <div className="mt-8 flex flex-wrap items-center justify-center gap-4">
                                 <Link
-                                    href={auth?.user ? route('dashboard') : route('register')}
+                                    href={auth?.user ? route('dashboard') : route('login')}
                                     className="px-8 py-4 rounded-xl bg-white text-indigo-950 hover:bg-slate-100 font-bold text-base transition-all shadow-xl shadow-white/10 flex items-center gap-2"
                                 >
-                                    <span>Get Started Now</span>
+                                    <span>Get Started with GitHub</span>
                                     <ArrowRight className="w-4 h-4" />
                                 </Link>
                                 <Link
