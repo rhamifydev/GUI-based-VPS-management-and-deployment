@@ -31,6 +31,8 @@ import {
     UserPlus,
     ShieldAlert,
     FolderGit2,
+    Folder,
+    Search,
     Power,
     Globe,
     Trash2,
@@ -50,15 +52,17 @@ export default function Dashboard() {
     // Modal state for Server Setup & Onboarding
     const [setupModalOpen, setSetupModalOpen] = useState(false);
     const [selectedOs, setSelectedOs] = useState(null); // 'linux' | 'windows' | null
-    const [authMethod, setAuthMethod] = useState('key'); // 'key' | 'password'
+    const [authMethod, setAuthMethod] = useState('auto'); // 'auto' | 'password' | 'custom_key'
 
     // Form fields for Linux
-    const [linuxIp, setLinuxIp] = useState('147.93.85.120');
+    const [linuxIp, setLinuxIp] = useState('');
     const [linuxPort, setLinuxPort] = useState('22');
     const [linuxUser, setLinuxUser] = useState('');
     const [linuxPassword, setLinuxPassword] = useState('');
-    const [linuxKey, setLinuxKey] = useState('~/.ssh/rhamify_app_deploy');
-    const [linuxAppDir, setLinuxAppDir] = useState('~/rhamify_app');
+    const [linuxKey, setLinuxKey] = useState('');
+    const [keyPassphrase, setKeyPassphrase] = useState('');
+    const [showPassphrasePrompt, setShowPassphrasePrompt] = useState(false);
+    const [passphraseKeyName, setPassphraseKeyName] = useState('');
     const [showLinuxBootstrap, setShowLinuxBootstrap] = useState(false);
 
     // Root prompt & sub-account creation state for Linux
@@ -69,11 +73,10 @@ export default function Dashboard() {
     const [accountCreatedSuccess, setAccountCreatedSuccess] = useState(false);
 
     // Form fields for Windows
-    const [windowsIp, setWindowsIp] = useState('147.93.85.130');
+    const [windowsIp, setWindowsIp] = useState('');
     const [windowsPort, setWindowsPort] = useState('22');
     const [windowsUser, setWindowsUser] = useState('');
     const [windowsPassword, setWindowsPassword] = useState('');
-    const [windowsAppDir, setWindowsAppDir] = useState('C:\\inetpub\\wwwroot\\rhamify_app');
     const [showWinBootstrap, setShowWinBootstrap] = useState(false);
 
     // Sub-account creation state for Windows
@@ -83,18 +86,51 @@ export default function Dashboard() {
     const [newWinAccountPassword, setNewWinAccountPassword] = useState('');
     const [winAccountCreatedSuccess, setWinAccountCreatedSuccess] = useState(false);
 
+    // Custom center verification alert state
+    const [centerAlert, setCenterAlert] = useState(null);
+
+    const triggerAlert = (message, title = 'Verification Notice', type = 'warning', buttonText = 'Understood') => {
+        setCenterAlert({ message, title, type, buttonText });
+    };
+
+    // Modal Step & Server Explorer state
+    const [setupStep, setSetupStep] = useState('credentials'); // 'credentials' | 'explorer'
+    const [explorerTab, setExplorerTab] = useState('existing'); // 'existing' | 'new' | 'logs'
+    const [folderSearchQuery, setFolderSearchQuery] = useState('');
+    const [serverFolders, setServerFolders] = useState([]);
+
+    // Live Command Visibility State
+    const [copiedCmd, setCopiedCmd] = useState(false);
+    const [liveCommandLogs, setLiveCommandLogs] = useState([]);
+
+    const handleCopyCommand = (cmdText) => {
+        if (!cmdText) return;
+        navigator.clipboard.writeText(cmdText);
+        setCopiedCmd(true);
+        setTimeout(() => setCopiedCmd(false), 2000);
+    };
+
+    // New project form state in explorer
+    const [newProjName, setNewProjName] = useState('');
+    const [newProjDir, setNewProjDir] = useState('/var/www/');
+    const [newProjType, setNewProjType] = useState('laravel');
+    const [newProjGit, setNewProjGit] = useState('');
+    const [newProjBranch, setNewProjBranch] = useState('main');
+    const [newProjDomain, setNewProjDomain] = useState('');
+
     // Connection testing state
     const [isTestingConnection, setIsTestingConnection] = useState(false);
     const [testLog, setTestLog] = useState(null);
-    const [connectedServer, setConnectedServer] = useState({
-        name: 'Production VPS Node',
-        ip: '147.93.85.120',
-        port: '22',
-        user: 'rhamifytechnology',
-        os: 'Ubuntu 24.04 LTS (x86_64)',
-        type: 'linux',
-        status: 'Online & Synced'
-    });
+    const [connectedServer, setConnectedServer] = useState(null);
+
+    const generatedLinuxCmd = (() => {
+        const user = linuxUser || '<username>';
+        const host = linuxIp || '<server-ip>';
+        const portPart = (linuxPort && linuxPort !== '22') ? `-p ${linuxPort} ` : '';
+        const keyPart = authMethod === 'custom_key' && linuxKey ? `-i ${linuxKey} ` : '';
+        return `ssh ${portPart}${keyPart}${user}@${host}`;
+    })();
+    const generatedWinCmd = `ssh -p ${windowsPort || '22'} ${windowsUser || '<username>'}@${windowsIp || '<server-ip>'}`;
 
     const defaultProjects = [
         {
@@ -143,7 +179,7 @@ export default function Dashboard() {
         }
     ];
 
-    const [projects, setProjects] = useState(defaultProjects);
+    const [projects, setProjects] = useState([]);
 
     // Toggle server connection on a project card (Connect Server / Disconnect Server)
     const toggleServerConnection = (projectId) => {
@@ -233,9 +269,25 @@ export default function Dashboard() {
 
     const handleSignInAttempt = (os) => {
         if (os === 'linux') {
+            if (!linuxIp || !linuxIp.trim()) {
+                triggerAlert('Please enter your Server IP address or hostname before connecting.', 'Server IP Required', 'warning');
+                return;
+            }
+            if (!linuxPort || !linuxPort.trim()) {
+                triggerAlert('Please specify a valid SSH port (default is 22).', 'SSH Port Required', 'warning');
+                return;
+            }
             const user = (linuxUser || '').trim().toLowerCase();
             if (!user) {
-                alert('Please enter an SSH username (e.g. root or sub-account).');
+                triggerAlert('Please enter an SSH username (e.g. root or sub-account).', 'Username Required', 'warning');
+                return;
+            }
+            if (authMethod === 'custom_key' && (!linuxKey || !linuxKey.trim())) {
+                triggerAlert('Please enter your custom SSH Private Key path (or switch to Auto-detect).', 'SSH Key Required', 'warning');
+                return;
+            }
+            if (authMethod === 'password' && (!linuxPassword || !linuxPassword.trim())) {
+                triggerAlert('Please enter your SSH account password to proceed.', 'Password Required', 'warning');
                 return;
             }
             if (user === 'root') {
@@ -244,9 +296,21 @@ export default function Dashboard() {
             }
             handleTestAndConnect('linux');
         } else {
+            if (!windowsIp || !windowsIp.trim()) {
+                triggerAlert('Please enter your Windows Host or IP address before connecting.', 'Windows Host Required', 'warning');
+                return;
+            }
+            if (!windowsPort || !windowsPort.trim()) {
+                triggerAlert('Please specify a valid port (default is 22).', 'Port Required', 'warning');
+                return;
+            }
             const user = (windowsUser || '').trim().toLowerCase();
             if (!user) {
-                alert('Please enter a Windows username (e.g. Administrator or sub-account).');
+                triggerAlert('Please enter a Windows username (e.g. Administrator or sub-account).', 'Username Required', 'warning');
+                return;
+            }
+            if (!windowsPassword || !windowsPassword.trim()) {
+                triggerAlert('Please enter the password for this Windows user account.', 'Password Required', 'warning');
                 return;
             }
             if (user === 'administrator') {
@@ -257,61 +321,244 @@ export default function Dashboard() {
         }
     };
 
-    const handleTestAndConnect = (os, userOverride = null) => {
-        const targetUser = userOverride || (os === 'linux' ? linuxUser : windowsUser);
+    const handleTestAndConnect = async (os, userOverride = null, passphraseOverride = null) => {
+        const targetUser = (userOverride || (os === 'linux' ? linuxUser : windowsUser) || '').trim();
+        const targetIp = (os === 'linux' ? linuxIp : windowsIp || '').trim();
+        const targetPort = (os === 'linux' ? linuxPort : windowsPort || '22').trim();
+        const targetPassword = os === 'linux' ? linuxPassword : windowsPassword;
+        const targetKeyPath = os === 'linux' && authMethod === 'custom_key' ? linuxKey : '';
+        const currentPassphrase = passphraseOverride !== null ? passphraseOverride : keyPassphrase;
+
+        const portPart = (targetPort && targetPort !== '22') ? `-p ${targetPort} ` : '';
+        const keyPart = targetKeyPath ? `-i ${targetKeyPath} ` : '';
+        const activeConnectCmd = `ssh ${portPart}${keyPart}${targetUser}@${targetIp}`;
+
         setIsTestingConnection(true);
-        setTestLog('Pinging host ' + (os === 'linux' ? linuxIp : windowsIp) + '...');
+        setTestLog(`Connecting via SSH to ${targetUser}@${targetIp}...`);
 
-        setTimeout(() => {
-            setTestLog('Initiating encrypted handshake on port ' + (os === 'linux' ? linuxPort : windowsPort) + '...');
-        }, 800);
+        setLiveCommandLogs((prev) => [
+            ...prev.slice(-3),
+            {
+                time: new Date().toLocaleTimeString(),
+                cmd: activeConnectCmd,
+                status: 'running',
+                output: `Initiating encrypted SSH-2.0 connection to ${targetIp}:${targetPort}...`
+            }
+        ]);
 
-        setTimeout(() => {
-            setTestLog('Validating user permissions for ' + targetUser + '...');
-        }, 1600);
-
-        setTimeout(() => {
-            setIsTestingConnection(false);
-            setTestLog('Success! Connection established.');
-
-            // Update active node on dashboard
-            if (os === 'linux') {
-                setConnectedServer({
-                    name: 'Linux Server Node',
-                    ip: linuxIp,
-                    port: linuxPort,
+        try {
+            const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+            const res = await fetch('/vps/connect', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': csrfToken || '',
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+                body: JSON.stringify({
+                    os: os,
+                    ip: targetIp,
+                    port: targetPort,
                     user: targetUser,
-                    os: 'Ubuntu / Debian Linux (SSH)',
-                    type: 'linux',
-                    status: 'Connected & Verified'
-                });
-            } else {
-                setConnectedServer({
-                    name: 'Windows Server Node',
-                    ip: windowsIp,
-                    port: windowsPort,
-                    user: targetUser,
-                    os: 'Windows Server (PowerShell / WinRM)',
-                    type: 'windows',
-                    status: 'Connected & Verified'
-                });
+                    auth_method: authMethod === 'custom_key' ? 'key' : authMethod,
+                    password: targetPassword,
+                    key_path: targetKeyPath,
+                    key_passphrase: currentPassphrase || null,
+                })
+            });
+
+            const data = await res.json();
+
+            // Check if key requires passphrase unlock
+            if (data.requires_passphrase) {
+                setIsTestingConnection(false);
+                setTestLog(null);
+                setShowPassphrasePrompt(true);
+                setPassphraseKeyName(data.key_name || 'id_ed25519');
+                if (data.commands && Array.isArray(data.commands)) {
+                    setLiveCommandLogs(data.commands);
+                }
+                return;
             }
 
-            const newProj = {
+            if (!res.ok || !data.success) {
+                setIsTestingConnection(false);
+                setTestLog(null);
+                setShowPassphrasePrompt(false);
+                if (data.commands && Array.isArray(data.commands)) {
+                    setLiveCommandLogs(data.commands);
+                } else {
+                    setLiveCommandLogs([
+                        {
+                            time: new Date().toLocaleTimeString(),
+                            cmd: activeConnectCmd,
+                            status: 'failed',
+                            output: data.message || `Unable to establish SSH connection to ${targetUser}@${targetIp}.`
+                        }
+                    ]);
+                }
+                triggerAlert(
+                    data.message || `Unable to establish SSH connection to ${targetUser}@${targetIp}. Please verify your credentials and ensure port ${targetPort} is open in your server firewall.`,
+                    'SSH Authentication Failed',
+                    'error'
+                );
+                return;
+            }
+
+            // Real live connection succeeded!
+            setIsTestingConnection(false);
+            setTestLog(null);
+            setShowPassphrasePrompt(false);
+            setKeyPassphrase('');
+            if (data.commands && Array.isArray(data.commands)) {
+                setLiveCommandLogs(data.commands);
+            }
+            setConnectedServer(data.server);
+            setServerFolders(data.folders || []);
+            setNewProjDir(os === 'linux' ? '/var/www/' : 'C:\\inetpub\\wwwroot\\');
+            setSetupStep('explorer');
+            setExplorerTab('existing');
+            setShowRootPrompt(false);
+            setShowWinAdminPrompt(false);
+
+        } catch (err) {
+            setIsTestingConnection(false);
+            setTestLog(null);
+            setShowPassphrasePrompt(false);
+            setLiveCommandLogs([
+                {
+                    time: new Date().toLocaleTimeString(),
+                    cmd: activeConnectCmd,
+                    status: 'failed',
+                    output: `Network error: ${err.message}`
+                }
+            ]);
+            triggerAlert(
+                `Network error connecting to VPS backend: ${err.message}.`,
+                'Connection Network Error',
+                'error'
+            );
+        }
+    };
+
+    const handlePassphraseSubmit = (e) => {
+        if (e) e.preventDefault();
+        if (!keyPassphrase.trim()) {
+            triggerAlert('Please enter the passphrase for your key.', 'Passphrase Required', 'warning');
+            return;
+        }
+        handleTestAndConnect('linux', null, keyPassphrase);
+    };
+
+    const handleSelectServerFolder = (folder) => {
+        const newProject = {
+            id: 'proj-' + Date.now(),
+            name: folder.name,
+            description: folder.description || `${folder.framework} project on ${connectedServer.os}`,
+            ip: connectedServer.ip,
+            port: connectedServer.port,
+            user: connectedServer.user,
+            os: connectedServer.os,
+            type: connectedServer.type,
+            branch: folder.branch || 'main',
+            commit: folder.commit || '47317d1',
+            commitMessage: 'feat(deploy): linked server directory ' + folder.path,
+            lastDeployTime: 'Just now',
+            deployDuration: '12s',
+            domain: folder.domain || `${folder.name}.rhamify.com`,
+            path: folder.path,
+            framework: folder.framework,
+            isConnected: true,
+            status: 'Online & Synced',
+            isDeploying: false,
+            deployProgress: null,
+            lastVisited: 'Just now',
+            lastVisitedTimestamp: Date.now(),
+        };
+
+        const existingIndex = projects.findIndex(p => p.ip === connectedServer.ip && p.name === folder.name);
+        if (existingIndex >= 0) {
+            setProjects(prev => {
+                const copy = [...prev];
+                copy[existingIndex] = {
+                    ...copy[existingIndex],
+                    isConnected: true,
+                    status: 'Online & Synced',
+                    lastVisited: 'Just now',
+                    lastVisitedTimestamp: Date.now()
+                };
+                return copy.sort((a, b) => b.lastVisitedTimestamp - a.lastVisitedTimestamp);
+            });
+        } else {
+            setProjects(prev => [newProject, ...prev]);
+        }
+
+        setSetupModalOpen(false);
+        triggerAlert(`Project "${folder.name}" (${folder.path}) is now active on your dashboard.`, 'Project Successfully Linked', 'success');
+    };
+
+    const handleCreateNewProject = async (e) => {
+        if (e && e.preventDefault) e.preventDefault();
+        if (!newProjName || !newProjName.trim()) {
+            triggerAlert('Please provide a name for your new project.', 'Project Name Required', 'warning');
+            return;
+        }
+
+        const cleanName = newProjName.trim().replace(/\s+/g, '-').toLowerCase();
+        const basePath = newProjDir.trim() || (connectedServer?.type === 'windows' ? 'C:\\inetpub\\wwwroot\\' : '/var/www/');
+        const fullPath = basePath.endsWith('/') || basePath.endsWith('\\') 
+            ? `${basePath}${cleanName}` 
+            : `${basePath}/${cleanName}`;
+
+        try {
+            const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+            const res = await fetch('/vps/create-project', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': csrfToken || '',
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+                body: JSON.stringify({
+                    ip: connectedServer?.ip,
+                    port: connectedServer?.port,
+                    user: connectedServer?.user,
+                    auth_method: authMethod,
+                    password: connectedServer?.type === 'linux' ? linuxPassword : windowsPassword,
+                    key_path: connectedServer?.type === 'linux' ? linuxKey : '',
+                    project_name: cleanName,
+                    project_path: fullPath,
+                    framework: newProjType,
+                    git_url: newProjGit.trim() || null
+                })
+            });
+
+            const data = await res.json();
+            if (!res.ok || !data.success) {
+                triggerAlert(data.message || 'Failed to create directory on remote server.', 'Creation Failed', 'error');
+                return;
+            }
+
+            const newProject = {
                 id: 'proj-' + Date.now(),
-                name: os === 'linux' ? (linuxAppDir.replace(/^[~/\\]+/, '') || 'linux_vps_node') : (windowsAppDir.split('\\').pop() || 'windows_vps_node'),
-                description: `${os === 'linux' ? 'Ubuntu Linux' : 'Windows Server'} node successfully connected via ${os === 'linux' ? 'SSH' : 'WinRM/OpenSSH'}.`,
-                ip: os === 'linux' ? linuxIp : windowsIp,
-                port: os === 'linux' ? linuxPort : windowsPort,
-                user: targetUser,
-                os: os === 'linux' ? 'Ubuntu 24.04 LTS (x86_64)' : 'Windows Server 2022',
-                type: os,
-                branch: 'main',
-                commit: 'c90bf14',
-                commitMessage: 'feat(server): initial node provisioning & health check verified',
+                name: cleanName,
+                description: `Live ${newProjType.toUpperCase()} project created on ${connectedServer?.ip} at ${fullPath}`,
+                ip: connectedServer?.ip,
+                port: connectedServer?.port,
+                user: connectedServer?.user,
+                os: connectedServer?.os,
+                type: connectedServer?.type,
+                branch: newProjBranch.trim() || 'main',
+                commit: 'live-init',
+                commitMessage: `chore(init): initialized project directory on ${connectedServer?.ip}`,
                 lastDeployTime: 'Just now',
-                deployDuration: '14s',
-                domain: os === 'linux' ? 'new.rhamify.com' : 'vps.rhamify.com',
+                deployDuration: '6s',
+                domain: newProjDomain.trim() || `${cleanName}.${connectedServer?.ip}.nip.io`,
+                path: fullPath,
+                gitUrl: newProjGit.trim(),
+                framework: newProjType === 'laravel' ? 'Laravel 11 (PHP 8.4)' : newProjType === 'node' ? 'Node.js / Express' : newProjType === 'python' ? 'Python / Django' : 'Static Web / HTML',
                 isConnected: true,
                 status: 'Online & Synced',
                 isDeploying: false,
@@ -319,15 +566,35 @@ export default function Dashboard() {
                 lastVisited: 'Just now',
                 lastVisitedTimestamp: Date.now(),
             };
-            setProjects(prev => [newProj, ...prev.filter(p => p.ip !== newProj.ip)]);
 
-            setTimeout(() => {
-                setSetupModalOpen(false);
-                setTestLog(null);
-                setShowRootPrompt(false);
-                setShowWinAdminPrompt(false);
-            }, 1200);
-        }, 2400);
+            setProjects(prev => [newProject, ...prev]);
+            
+            // Add to server folders list
+            setServerFolders(prev => [
+                {
+                    id: 'fold-' + Date.now(),
+                    name: cleanName,
+                    path: fullPath,
+                    framework: newProject.framework,
+                    type: newProjType,
+                    branch: newProject.branch,
+                    commit: newProject.commit,
+                    lastUpdated: 'Just now',
+                    domain: newProject.domain,
+                    description: newProject.description
+                },
+                ...prev
+            ]);
+
+            setSetupModalOpen(false);
+            triggerAlert(`Project "${cleanName}" was created on ${connectedServer?.ip} at ${fullPath} and linked to your dashboard!`, 'Project Created & Linked', 'success');
+
+            setNewProjName('');
+            setNewProjGit('');
+            setNewProjDomain('');
+        } catch (err) {
+            triggerAlert('Network error while creating project on server: ' + err.message, 'Project Creation Error', 'error');
+        }
     };
 
     return (
@@ -335,64 +602,21 @@ export default function Dashboard() {
             <Head title="VPS Management Dashboard" />
 
             <div className="py-6 sm:py-8 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto space-y-6 sm:space-y-8">
-                {/* Dashboard Top Action Bar */}
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-6 border-b border-slate-800/80">
-                    <div>
-                        <h1 className="font-heading text-2xl sm:text-3xl font-extrabold text-white flex items-center gap-2.5">
-                            <Server className="w-6 h-6 text-indigo-400" />
-                            <span>VPS Control Panel</span>
-                        </h1>
-                        <p className="text-xs text-slate-400 mt-1">
-                            Authenticated as <span className="text-indigo-400 font-semibold">{user.github_username ? `@${user.github_username}` : user.name}</span> &bull; Active: {connectedServer.ip}
-                        </p>
-                    </div>
-
-                    <div className="flex items-center gap-2.5 flex-wrap">
-                        {/* Open Setup Wizard Modal Button */}
-                        <button
-                            onClick={() => {
-                                setSelectedOs(null);
-                                setSetupModalOpen(true);
-                            }}
-                            className="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs transition-all shadow-md shadow-indigo-600/25 flex items-center gap-2"
-                        >
-                            <Plus className="w-4 h-4" />
-                            <span>Connect / Setup Server</span>
-                        </button>
-
-                        {/* Trigger Deploy Action */}
-                        <button
-                            onClick={handleQuickDeploy}
-                            disabled={isDeploying}
-                            className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-semibold text-xs transition-all shadow-lg shadow-emerald-600/20 flex items-center gap-2"
-                        >
-                            {isDeploying ? (
-                                <>
-                                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                                    <span>Deploying...</span>
-                                </>
-                            ) : (
-                                <>
-                                    <Play className="w-3.5 h-3.5 fill-white" />
-                                    <span>Trigger Deploy (deploy.sh)</span>
-                                </>
-                            )}
-                        </button>
-                    </div>
-                </div>
-
+               
                 {/* Onboarding Intent Quick Card */}
-                <div className="p-4 rounded-2xl bg-gradient-to-r from-indigo-950/40 via-purple-950/20 to-slate-900 border border-indigo-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                    <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center flex-shrink-0">
+                <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-indigo-950/40 via-purple-950/20 to-slate-900 border border-indigo-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div className="flex items-start sm:items-center gap-3 min-w-0">
+                        <div className="w-10 h-10 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center flex-shrink-0 mt-0.5 sm:mt-0">
                             <Sparkles className="w-5 h-5 text-indigo-400" />
                         </div>
-                        <div>
-                            <div className="text-xs font-bold text-white flex items-center gap-2">
-                                <span>VPS Connection Assistant</span>
-                                <span className="px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 text-[10px] font-mono">Linux & Windows Ready</span>
+                        <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                                <span className="text-xs sm:text-sm font-bold text-white">VPS Connection Assistant</span>
+                                <span className="px-2 py-0.5 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 text-[10px] font-mono whitespace-nowrap inline-block">
+                                    Linux & Windows Ready
+                                </span>
                             </div>
-                            <p className="text-[11px] text-slate-400 mt-0.5">
+                            <p className="text-[11px] sm:text-xs text-slate-400 mt-1 leading-relaxed">
                                 Connect an existing server with login details, or start from scratch with guided cloud provisioning.
                             </p>
                         </div>
@@ -402,7 +626,7 @@ export default function Dashboard() {
                             setSelectedOs(null);
                             setSetupModalOpen(true);
                         }}
-                        className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium whitespace-nowrap transition-colors flex items-center gap-1.5 self-start sm:self-auto"
+                        className="w-full sm:w-auto justify-center px-4 py-2.5 sm:py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold whitespace-nowrap transition-colors flex items-center gap-1.5 flex-shrink-0"
                     >
                         <span>Configure Server</span>
                         <ChevronRight className="w-3.5 h-3.5" />
@@ -464,6 +688,7 @@ export default function Dashboard() {
                                         <button
                                             onClick={() => {
                                                 setSelectedOs(null);
+                                                setSetupStep(connectedServer.status === 'Connected & Verified' ? 'explorer' : 'credentials');
                                                 setSetupModalOpen(true);
                                             }}
                                             className="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition-all shadow-md shadow-indigo-600/20 flex items-center gap-1.5"
@@ -651,9 +876,6 @@ export default function Dashboard() {
                                                             </span>
                                                             <span className="text-slate-400 text-[10px] font-mono">({project.branch || 'main'})</span>
                                                         </div>
-                                                        <p className="text-xs text-slate-200 font-sans leading-relaxed break-words pl-5">
-                                                            "{project.commitMessage || project.commit}"
-                                                        </p>
                                                     </div>
 
                                                     {/* Server Host & Domain details */}
@@ -753,31 +975,397 @@ export default function Dashboard() {
                     />
 
                     {/* Modal Card */}
-                    <div className="relative bg-[#0E131F] border border-slate-800 rounded-3xl max-w-3xl w-full p-6 sm:p-8 shadow-2xl z-10 max-h-[92vh] overflow-y-auto scrollbar-thin scrollbar-thumb-slate-800">
-                        {/* Modal Header */}
-                        <div className="flex items-start justify-between pb-6 border-b border-slate-800">
+                    <div className="relative bg-[#0E131F] border border-slate-800 rounded-2xl sm:rounded-3xl max-w-3xl w-full p-4 sm:p-8 shadow-2xl z-10 max-h-[92vh] overflow-y-auto scrollbar-thin scrollbar-thumb-slate-800">
+                        {setupStep === 'explorer' ? (
                             <div>
-                                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-xs font-semibold mb-2">
-                                    <Server className="w-3.5 h-3.5 text-indigo-400" />
-                                    <span>Server Provisioning & Connection Wizard</span>
+                                {/* Explorer Header */}
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-5 border-b border-slate-800">
+                                    <div>
+                                        <button
+                                            type="button"
+                                            onClick={() => setSetupStep('credentials')}
+                                            className="text-xs text-slate-400 hover:text-white flex items-center gap-1.5 mb-2 transition-colors font-medium"
+                                        >
+                                            <ArrowLeft className="w-3.5 h-3.5" />
+                                            <span>Back to Server Credentials</span>
+                                        </button>
+                                        <h3 className="font-heading text-xl sm:text-2xl font-bold text-white flex items-center gap-2">
+                                            <FolderGit2 className="w-6 h-6 text-indigo-400" />
+                                            <span>Server Projects & Directories</span>
+                                        </h3>
+                                        <div className="flex flex-wrap items-center gap-2 mt-2">
+                                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-mono font-medium">
+                                                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                                                <span>Connected: {connectedServer?.user}@{connectedServer?.ip}:{connectedServer?.port}</span>
+                                            </span>
+                                            <span className="text-xs text-slate-400 font-mono">
+                                                {connectedServer?.os}
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <button
+                                        onClick={() => setSetupModalOpen(false)}
+                                        className="self-start sm:self-center p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-white transition-colors"
+                                    >
+                                        <X className="w-5 h-5" />
+                                    </button>
                                 </div>
-                                <h3 className="font-heading text-2xl font-bold text-white">
-                                    Connect Your VPS Node
-                                </h3>
-                                <p className="text-xs text-slate-400 mt-1">
-                                    Choose your server OS. Connect using default login credentials or a dedicated deployer sub-account.
-                                </p>
-                            </div>
-                            <button
-                                onClick={() => setSetupModalOpen(false)}
-                                className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-white transition-colors"
-                            >
-                                <X className="w-5 h-5" />
-                            </button>
-                        </div>
 
-                        {/* Step 1: Choose Operating System (Big Buttons: Windows vs Linux) */}
-                        <div className="mt-6">
+                                {/* Tab switch: Folders on Server vs Create New Project */}
+                                <div className="mt-5 flex items-center justify-between flex-wrap gap-3 pb-3 border-b border-slate-800/80">
+                                    <div className="inline-flex p-1 rounded-xl bg-slate-900/90 border border-slate-800">
+                                        <button
+                                            type="button"
+                                            onClick={() => setExplorerTab('existing')}
+                                            className={`px-3.5 py-2 rounded-lg text-xs font-semibold flex items-center gap-2 transition-all ${
+                                                explorerTab === 'existing'
+                                                    ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+                                                    : 'text-slate-400 hover:text-white'
+                                            }`}
+                                        >
+                                            <Folder className="w-4 h-4" />
+                                            <span>Folders on Server ({serverFolders.length})</span>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setExplorerTab('new')}
+                                            className={`px-3.5 py-2 rounded-lg text-xs font-semibold flex items-center gap-2 transition-all ${
+                                                explorerTab === 'new'
+                                                    ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+                                                    : 'text-slate-400 hover:text-white'
+                                            }`}
+                                        >
+                                            <Plus className="w-4 h-4" />
+                                            <span>Create New Project</span>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setExplorerTab('logs')}
+                                            className={`px-3.5 py-2 rounded-lg text-xs font-semibold flex items-center gap-2 transition-all ${
+                                                explorerTab === 'logs'
+                                                    ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+                                                    : 'text-slate-400 hover:text-white'
+                                            }`}
+                                        >
+                                            <Terminal className="w-4 h-4 text-emerald-400" />
+                                            <span>Commands Run ({liveCommandLogs.length})</span>
+                                        </button>
+                                    </div>
+
+                                    {explorerTab === 'existing' && (
+                                        <div className="relative w-full sm:w-64">
+                                            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                                            <input
+                                                type="text"
+                                                value={folderSearchQuery}
+                                                onChange={(e) => setFolderSearchQuery(e.target.value)}
+                                                placeholder="Filter folders or path..."
+                                                className="w-full pl-8 pr-3 py-1.5 bg-[#080B12] border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:ring-1 focus:ring-indigo-500 font-mono"
+                                            />
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Tab 1: Folders on Server */}
+                                {explorerTab === 'existing' && (
+                                    <div className="mt-5 space-y-3.5">
+                                        <p className="text-xs text-slate-400">
+                                            The following project directories were detected on your VPS node. Select any folder to link it to your dashboard:
+                                        </p>
+
+                                        {serverFolders.filter(f => 
+                                            f.name.toLowerCase().includes(folderSearchQuery.toLowerCase()) ||
+                                            f.path.toLowerCase().includes(folderSearchQuery.toLowerCase()) ||
+                                            f.framework.toLowerCase().includes(folderSearchQuery.toLowerCase())
+                                        ).length === 0 ? (
+                                            <div className="p-8 rounded-2xl bg-slate-900/40 border border-slate-800 text-center">
+                                                <Folder className="w-8 h-8 text-slate-500 mx-auto mb-2" />
+                                                <p className="text-xs font-semibold text-slate-300">No matching folders found</p>
+                                                <p className="text-[11px] text-slate-500 mt-1">Try another search term or click "Create New Project" to initialize one.</p>
+                                            </div>
+                                        ) : (
+                                            <div className="grid grid-cols-1 gap-3">
+                                                {serverFolders.filter(f => 
+                                                    f.name.toLowerCase().includes(folderSearchQuery.toLowerCase()) ||
+                                                    f.path.toLowerCase().includes(folderSearchQuery.toLowerCase()) ||
+                                                    f.framework.toLowerCase().includes(folderSearchQuery.toLowerCase())
+                                                ).map((folder) => (
+                                                    <div
+                                                        key={folder.id}
+                                                        className="p-4 rounded-2xl bg-[#080B12] border border-slate-800/90 hover:border-indigo-500/50 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4 group"
+                                                    >
+                                                        <div className="min-w-0">
+                                                            <div className="flex items-center gap-2.5">
+                                                                <div className="w-8 h-8 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 flex items-center justify-center flex-shrink-0">
+                                                                    <Folder className="w-4 h-4" />
+                                                                </div>
+                                                                <div className="min-w-0">
+                                                                    <div className="flex items-center gap-2 flex-wrap">
+                                                                        <h4 className="font-bold text-white text-sm truncate">
+                                                                            {folder.name}
+                                                                        </h4>
+                                                                        <span className="px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 text-[10px] font-mono border border-slate-700">
+                                                                            {folder.framework}
+                                                                        </span>
+                                                                        {folder.branch && (
+                                                                            <span className="px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-300 text-[10px] font-mono flex items-center gap-1">
+                                                                                <GitBranch className="w-2.5 h-2.5" />
+                                                                                {folder.branch}
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                    <div className="text-[11px] font-mono text-cyan-400 mt-0.5 truncate">
+                                                                        {folder.path}
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                            <p className="text-xs text-slate-400 mt-2 line-clamp-1">
+                                                                {folder.description}
+                                                            </p>
+                                                        </div>
+
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleSelectServerFolder(folder)}
+                                                            className="sm:self-center px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition-all shadow-md shadow-indigo-600/20 flex items-center justify-center gap-1.5 flex-shrink-0"
+                                                        >
+                                                            <CheckCircle2 className="w-3.5 h-3.5" />
+                                                            <span>Select & Link</span>
+                                                        </button>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* Tab 2: Create New Project */}
+                                {explorerTab === 'new' && (
+                                    <form onSubmit={handleCreateNewProject} className="mt-5 space-y-4">
+                                        <div className="p-3 rounded-xl bg-indigo-950/20 border border-indigo-500/20 text-xs text-indigo-200">
+                                            Create a new deployment workspace on this VPS node. The system will set up directory permissions, git tracking, and web server bindings.
+                                        </div>
+
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                                            <div>
+                                                <label className="block text-xs font-medium text-slate-300 mb-1">
+                                                    Project Name <span className="text-indigo-400">*</span>
+                                                </label>
+                                                <input
+                                                    type="text"
+                                                    value={newProjName}
+                                                    onChange={(e) => setNewProjName(e.target.value)}
+                                                    placeholder="e.g. store-app or api-backend"
+                                                    className="w-full px-3.5 py-2.5 bg-[#080B12] border border-slate-800 rounded-xl text-white font-mono text-xs focus:ring-1 focus:ring-indigo-500"
+                                                    required
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-medium text-slate-300 mb-1">
+                                                    Server Directory Path
+                                                </label>
+                                                <input
+                                                    type="text"
+                                                    value={newProjDir}
+                                                    onChange={(e) => setNewProjDir(e.target.value)}
+                                                    placeholder={connectedServer.type === 'windows' ? 'C:\\inetpub\\wwwroot\\' : '/var/www/'}
+                                                    className="w-full px-3.5 py-2.5 bg-[#080B12] border border-slate-800 rounded-xl text-white font-mono text-xs focus:ring-1 focus:ring-indigo-500"
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-xs font-medium text-slate-300 mb-2">
+                                                Application Stack / Framework
+                                            </label>
+                                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                                                {[
+                                                    { id: 'laravel', label: 'Laravel (PHP 8.4)' },
+                                                    { id: 'node', label: 'Node.js / React' },
+                                                    { id: 'static', label: 'Static HTML / Web' },
+                                                    { id: 'python', label: 'Python / Django' },
+                                                ].map((stack) => (
+                                                    <button
+                                                        key={stack.id}
+                                                        type="button"
+                                                        onClick={() => setNewProjType(stack.id)}
+                                                        className={`px-3 py-2 rounded-xl text-xs font-medium border text-left transition-all ${
+                                                            newProjType === stack.id
+                                                                ? 'bg-indigo-600/20 border-indigo-500 text-indigo-300 font-bold'
+                                                                : 'bg-[#080B12] border-slate-800 text-slate-400 hover:text-white'
+                                                        }`}
+                                                    >
+                                                        {stack.label}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                                            <div>
+                                                <label className="block text-xs font-medium text-slate-300 mb-1">
+                                                    Git Repository URL (Optional)
+                                                </label>
+                                                <input
+                                                    type="text"
+                                                    value={newProjGit}
+                                                    onChange={(e) => setNewProjGit(e.target.value)}
+                                                    placeholder="https://github.com/rhamify/app.git"
+                                                    className="w-full px-3.5 py-2.5 bg-[#080B12] border border-slate-800 rounded-xl text-white font-mono text-xs focus:ring-1 focus:ring-indigo-500"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-medium text-slate-300 mb-1">
+                                                    Primary Domain / Host (Optional)
+                                                </label>
+                                                <input
+                                                    type="text"
+                                                    value={newProjDomain}
+                                                    onChange={(e) => setNewProjDomain(e.target.value)}
+                                                    placeholder="app.rhamify.com"
+                                                    className="w-full px-3.5 py-2.5 bg-[#080B12] border border-slate-800 rounded-xl text-white font-mono text-xs focus:ring-1 focus:ring-indigo-500"
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <div className="pt-2">
+                                            <button
+                                                type="submit"
+                                                className="w-full py-3 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs transition-all shadow-lg shadow-indigo-600/25 flex items-center justify-center gap-2"
+                                            >
+                                                <Plus className="w-4 h-4" />
+                                                <span>Initialize & Create Project on Server</span>
+                                            </button>
+                                        </div>
+                                    </form>
+                                )}
+
+                                {/* Tab 3: Commands Executed on Server */}
+                                {explorerTab === 'logs' && (
+                                    <div className="mt-5 space-y-4">
+                                        <div className="flex items-center justify-between">
+                                            <div>
+                                                <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                                                    <Terminal className="w-4 h-4 text-emerald-400" />
+                                                    <span>Commands Dispatched to Remote VPS</span>
+                                                </h4>
+                                                <p className="text-xs text-slate-400 mt-0.5">
+                                                    Real-time commands executed during SSH handshake and directory scanning:
+                                                </p>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => handleCopyCommand(liveCommandLogs.map(l => `$ ${l.cmd}\n${l.output || ''}`).join('\n\n'))}
+                                                className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-mono flex items-center gap-1.5 transition-colors border border-slate-700"
+                                            >
+                                                {copiedCmd ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                                                <span>{copiedCmd ? 'Copied' : 'Copy Full Stream'}</span>
+                                            </button>
+                                        </div>
+
+                                        <div className="p-4 bg-[#05070D] border border-slate-800 rounded-2xl font-mono text-xs space-y-3 max-h-96 overflow-y-auto">
+                                            {liveCommandLogs.length === 0 ? (
+                                                <div className="text-slate-500 py-8 text-center">
+                                                    No commands recorded for this session yet.
+                                                </div>
+                                            ) : (
+                                                liveCommandLogs.map((log, i) => (
+                                                    <div key={i} className="p-3 bg-black/50 rounded-xl border border-slate-800/80 space-y-1.5">
+                                                        <div className="flex items-center justify-between text-[11px]">
+                                                            <span className="text-slate-500">[{log.time}]</span>
+                                                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                                                                log.status === 'failed' ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                                                            }`}>
+                                                                {log.status || 'success'}
+                                                            </span>
+                                                        </div>
+                                                        <div className="text-emerald-400 font-semibold break-all select-all flex items-start gap-1.5">
+                                                            <span className="text-slate-600 select-none font-bold">$</span>
+                                                            <span>{log.cmd}</span>
+                                                        </div>
+                                                        {log.output && (
+                                                            <div className="text-slate-300 pl-3 border-l-2 border-slate-700/80 whitespace-pre-wrap text-[11px] leading-relaxed bg-[#0A0D16] p-2 rounded-lg">
+                                                                {log.output}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                ))
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        ) : (
+                            <div>
+                                {/* Modal Header */}
+                                <div className="flex items-start justify-between pb-6 border-b border-slate-800">
+                                    <div>
+                                        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-xs font-semibold mb-2">
+                                            <Server className="w-3.5 h-3.5 text-indigo-400" />
+                                            <span>Server Provisioning & Connection Wizard</span>
+                                        </div>
+                                        <h3 className="font-heading text-2xl font-bold text-white">
+                                            Connect Your VPS Node
+                                        </h3>
+                                        <p className="text-xs text-slate-400 mt-1">
+                                            Choose your server OS. Connect using default login credentials or a dedicated deployer sub-account.
+                                        </p>
+                                    </div>
+                                    <button
+                                        onClick={() => setSetupModalOpen(false)}
+                                        className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-white transition-colors"
+                                    >
+                                        <X className="w-5 h-5" />
+                                    </button>
+                                </div>
+
+                        {/* Mobile Compact Tab Switch: Shown on mobile once OS is selected to save vertical scrolling */}
+                        {selectedOs && (
+                            <div className="mt-4 sm:hidden">
+                                <div className="flex items-center justify-between p-2 rounded-xl bg-slate-900/90 border border-slate-800">
+                                    <span className="text-[11px] font-bold text-slate-400 pl-1 uppercase tracking-wider">
+                                        Active OS:
+                                    </span>
+                                    <div className="inline-flex p-0.5 rounded-lg bg-[#080B12] border border-slate-800/80">
+                                        <button
+                                            type="button"
+                                            onClick={() => setSelectedOs('linux')}
+                                            className={`px-3 py-1 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-all ${
+                                                selectedOs === 'linux'
+                                                    ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/40'
+                                                    : 'text-slate-400 hover:text-slate-200'
+                                            }`}
+                                        >
+                                            <Terminal className="w-3.5 h-3.5" />
+                                            <span>Linux</span>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setSelectedOs('windows')}
+                                            className={`px-3 py-1 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-all ${
+                                                selectedOs === 'windows'
+                                                    ? 'bg-cyan-600 text-white shadow-sm shadow-cyan-600/40'
+                                                    : 'text-slate-400 hover:text-slate-200'
+                                            }`}
+                                        >
+                                            <Monitor className="w-3.5 h-3.5" />
+                                            <span>Windows</span>
+                                        </button>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => setSelectedOs(null)}
+                                        className="text-[10px] text-indigo-400 hover:text-indigo-300 font-medium px-1.5 py-0.5 rounded hover:bg-slate-800 transition-colors"
+                                        title="View full OS selection cards"
+                                    >
+                                        Reset
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Step 1: Choose Operating System (Big Buttons: Windows vs Linux - Hidden on mobile if OS selected) */}
+                        <div className={`mt-6 ${selectedOs ? 'hidden sm:block' : 'block'}`}>
                             <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">
                                 Select Server Operating System
                             </label>
@@ -806,7 +1394,7 @@ export default function Dashboard() {
                                     <div className="mt-4">
                                         <h4 className="font-bold text-base text-white">Linux Server</h4>
                                         <p className="text-xs text-slate-400 mt-1">
-                                            Ubuntu 24.04 / 22.04 LTS, Debian, AlmaLinux, CentOS
+                                             Ubuntu 24.04 / 22.04 LTS, Debian, AlmaLinux, CentOS
                                         </p>
                                         <div className="mt-3 flex items-center gap-2 text-[11px] font-mono text-indigo-300">
                                             <span>SSH &bull; OpenSSH &bull; Nginx &bull; PHP-FPM</span>
@@ -849,7 +1437,7 @@ export default function Dashboard() {
 
                         {/* Linux Server Configuration Details */}
                         {selectedOs === 'linux' && (
-                            <div className="mt-8 p-5 bg-[#080B12] border border-indigo-500/30 rounded-2xl space-y-5">
+                            <div className="mt-4 sm:mt-8 p-4 sm:p-5 bg-[#080B12] border border-indigo-500/30 rounded-2xl space-y-5">
                                 <div className="flex items-center justify-between pb-2 border-b border-slate-800">
                                     <div className="flex items-center gap-2">
                                         <Terminal className="w-4 h-4 text-indigo-400" />
@@ -858,10 +1446,10 @@ export default function Dashboard() {
                                     <span className="text-[11px] font-mono text-slate-400">Port: {linuxPort} &bull; OpenSSH</span>
                                 </div>
 
-                                {/* Connection Fields */}
-                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                                    <div className="sm:col-span-2">
-                                        <label className="block text-xs font-medium text-slate-300 mb-1">
+                                {/* Connection Fields: Server IP & Port on a straight line on mobile */}
+                                <div className="grid grid-cols-12 gap-2 sm:gap-3">
+                                    <div className="col-span-8 sm:col-span-9">
+                                        <label className="block text-xs font-medium text-slate-300 mb-1 truncate">
                                             Server IP Address / Hostname
                                         </label>
                                         <input
@@ -872,8 +1460,8 @@ export default function Dashboard() {
                                             className="w-full px-3.5 py-2.5 bg-[#0E131F] border border-slate-800 rounded-xl text-white font-mono text-xs focus:ring-1 focus:ring-indigo-500"
                                         />
                                     </div>
-                                    <div>
-                                        <label className="block text-xs font-medium text-slate-300 mb-1">
+                                    <div className="col-span-4 sm:col-span-3">
+                                        <label className="block text-xs font-medium text-slate-300 mb-1 truncate">
                                             SSH Port
                                         </label>
                                         <input
@@ -881,74 +1469,90 @@ export default function Dashboard() {
                                             value={linuxPort}
                                             onChange={(e) => setLinuxPort(e.target.value)}
                                             placeholder="22"
-                                            className="w-full px-3.5 py-2.5 bg-[#0E131F] border border-slate-800 rounded-xl text-white font-mono text-xs focus:ring-1 focus:ring-indigo-500"
+                                            className="w-full px-3 sm:px-3.5 py-2.5 bg-[#0E131F] border border-slate-800 rounded-xl text-white font-mono text-xs focus:ring-1 focus:ring-indigo-500"
                                         />
                                     </div>
                                 </div>
 
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                    <div>
-                                        <div className="flex items-center justify-between mb-1">
-                                            <label className="block text-xs font-medium text-slate-300">
-                                                SSH Username
-                                            </label>
-                                            <div className="flex items-center gap-1.5 text-[10px]">
+                                {/* SSH Username */}
+                                <div>
+                                    <div className="flex items-center justify-between mb-1">
+                                        <label className="block text-xs font-medium text-slate-300">
+                                            SSH Username
+                                        </label>
+                                        <div className="flex items-center gap-1.5 text-[10px]">
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setLinuxUser('root');
+                                                    setShowRootPrompt(false);
+                                                    setShowNewAccountForm(false);
+                                                }}
+                                                className={`px-1.5 py-0.5 rounded ${
+                                                    linuxUser.toLowerCase() === 'root'
+                                                        ? 'bg-amber-500/20 text-amber-300 font-bold'
+                                                        : 'text-slate-400 hover:text-white'
+                                                }`}
+                                            >
+                                                root
+                                            </button>
+                                            <span className="text-slate-600">|</span>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setLinuxUser('rhamifytechnology');
+                                                    setShowRootPrompt(false);
+                                                    setShowNewAccountForm(false);
+                                                }}
+                                                className={`px-1.5 py-0.5 rounded ${
+                                                    linuxUser.toLowerCase() !== 'root' && linuxUser !== ''
+                                                        ? 'bg-indigo-500/20 text-indigo-300 font-bold'
+                                                        : 'text-slate-400 hover:text-white'
+                                                }`}
+                                            >
+                                                sub-account
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <input
+                                        type="text"
+                                        value={linuxUser}
+                                        onChange={(e) => {
+                                            setLinuxUser(e.target.value);
+                                            setShowRootPrompt(false);
+                                        }}
+                                        placeholder="Enter username (e.g. root or deployer)"
+                                        className="w-full px-3.5 py-2.5 bg-[#0E131F] border border-slate-800 rounded-xl text-white font-mono text-xs focus:ring-1 focus:ring-indigo-500"
+                                    />
+
+                                    {/* Reactive Command Preview right after IP & Username */}
+                                    {(linuxIp || linuxUser) && (
+                                        <div className="mt-2.5 p-2.5 bg-[#06080F] border border-slate-800 rounded-xl space-y-1.5 animate-in fade-in duration-150">
+                                            <div className="flex items-center justify-between">
+                                                <div className="flex items-center gap-1.5">
+                                                    <span className="relative flex h-2 w-2">
+                                                        <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${isTestingConnection ? 'bg-amber-400' : 'bg-emerald-400'} opacity-75`}></span>
+                                                        <span className={`relative inline-flex rounded-full h-2 w-2 ${isTestingConnection ? 'bg-amber-500' : 'bg-emerald-500'}`}></span>
+                                                    </span>
+                                                    <span className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider">
+                                                        Command to Run:
+                                                    </span>
+                                                </div>
                                                 <button
                                                     type="button"
-                                                    onClick={() => {
-                                                        setLinuxUser('root');
-                                                        setShowRootPrompt(false);
-                                                        setShowNewAccountForm(false);
-                                                    }}
-                                                    className={`px-1.5 py-0.5 rounded ${
-                                                        linuxUser.toLowerCase() === 'root'
-                                                            ? 'bg-amber-500/20 text-amber-300 font-bold'
-                                                            : 'text-slate-400 hover:text-white'
-                                                    }`}
+                                                    onClick={() => handleCopyCommand(generatedLinuxCmd)}
+                                                    className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-mono flex items-center gap-1 transition-colors border border-slate-700/60"
                                                 >
-                                                    root
-                                                </button>
-                                                <span className="text-slate-600">|</span>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => {
-                                                        setLinuxUser('rhamifytechnology');
-                                                        setShowRootPrompt(false);
-                                                        setShowNewAccountForm(false);
-                                                    }}
-                                                    className={`px-1.5 py-0.5 rounded ${
-                                                        linuxUser.toLowerCase() !== 'root' && linuxUser !== ''
-                                                            ? 'bg-indigo-500/20 text-indigo-300 font-bold'
-                                                            : 'text-slate-400 hover:text-white'
-                                                    }`}
-                                                >
-                                                    sub-account
+                                                    {copiedCmd ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                                                    <span>{copiedCmd ? 'Copied' : 'Copy'}</span>
                                                 </button>
                                             </div>
+                                            <div className="p-2 bg-[#030508] border border-slate-800/80 rounded-lg font-mono text-xs text-emerald-400 break-all select-all flex items-center gap-2">
+                                                <span className="text-slate-600 select-none font-bold">$</span>
+                                                <span className="truncate">{generatedLinuxCmd}</span>
+                                            </div>
                                         </div>
-                                        <input
-                                            type="text"
-                                            value={linuxUser}
-                                            onChange={(e) => {
-                                                setLinuxUser(e.target.value);
-                                                setShowRootPrompt(false);
-                                            }}
-                                            placeholder="Enter username (e.g. root or deployer)"
-                                            className="w-full px-3.5 py-2.5 bg-[#0E131F] border border-slate-800 rounded-xl text-white font-mono text-xs focus:ring-1 focus:ring-indigo-500"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-medium text-slate-300 mb-1">
-                                            Application Directory
-                                        </label>
-                                        <input
-                                            type="text"
-                                            value={linuxAppDir}
-                                            onChange={(e) => setLinuxAppDir(e.target.value)}
-                                            placeholder="~/rhamify_app"
-                                            className="w-full px-3.5 py-2.5 bg-[#0E131F] border border-slate-800 rounded-xl text-white font-mono text-xs focus:ring-1 focus:ring-indigo-500"
-                                        />
-                                    </div>
+                                    )}
                                 </div>
 
                                 {/* ROOT USER NOTIFICATION & SUB-ACCOUNT CREATION DETAILS (Only shown if user attempts sign in as root) */}
@@ -1047,12 +1651,19 @@ export default function Dashboard() {
                                                     <button
                                                         type="button"
                                                         onClick={() => {
-                                                            if (!newAccountUser) return;
-                                                            setLinuxUser(newAccountUser);
+                                                            if (!newAccountUser || !newAccountUser.trim()) {
+                                                                triggerAlert('Please enter a username for the new Linux sub-account.', 'Username Required', 'warning');
+                                                                return;
+                                                            }
+                                                            if (!newAccountPassword || !newAccountPassword.trim()) {
+                                                                triggerAlert('Please set a password for the new Linux sub-account.', 'Password Required', 'warning');
+                                                                return;
+                                                            }
+                                                            setLinuxUser(newAccountUser.trim());
                                                             setShowRootPrompt(false);
                                                             setShowNewAccountForm(false);
                                                             setAccountCreatedSuccess(true);
-                                                            handleTestAndConnect('linux', newAccountUser);
+                                                            handleTestAndConnect('linux', newAccountUser.trim());
                                                         }}
                                                         className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-all shadow-md flex items-center gap-1.5"
                                                     >
@@ -1093,20 +1704,25 @@ export default function Dashboard() {
 
                                 {/* Auth Method Toggle */}
                                 <div>
-                                    <label className="block text-xs font-medium text-slate-300 mb-2">
-                                        Authentication Method
-                                    </label>
-                                    <div className="flex gap-2">
+                                    <div className="flex items-center justify-between mb-2">
+                                        <label className="block text-xs font-medium text-slate-300">
+                                            Authentication Method
+                                        </label>
+                                        <span className="text-[10px] text-emerald-400 font-mono flex items-center gap-1">
+                                            <Sparkles className="w-3 h-3" /> Auto-detection active
+                                        </span>
+                                    </div>
+                                    <div className="flex flex-wrap gap-2">
                                         <button
                                             type="button"
-                                            onClick={() => setAuthMethod('key')}
+                                            onClick={() => setAuthMethod('auto')}
                                             className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                                                authMethod === 'key'
+                                                authMethod === 'auto'
                                                     ? 'bg-indigo-600 text-white'
                                                     : 'bg-slate-800 text-slate-400 hover:text-white'
                                             }`}
                                         >
-                                            SSH Private Key (Recommended)
+                                            Auto-detect SSH Key (Default)
                                         </button>
                                         <button
                                             type="button"
@@ -1119,22 +1735,42 @@ export default function Dashboard() {
                                         >
                                             Password
                                         </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setAuthMethod('custom_key')}
+                                            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                                                authMethod === 'custom_key'
+                                                    ? 'bg-indigo-600 text-white'
+                                                    : 'bg-slate-800 text-slate-400 hover:text-white'
+                                            }`}
+                                        >
+                                            Custom Key Path
+                                        </button>
                                     </div>
 
-                                    {authMethod === 'key' ? (
+                                    {authMethod === 'auto' && (
+                                        <div className="mt-2 text-[11px] text-slate-400 flex items-center gap-1.5 bg-[#0A0E18] p-2.5 rounded-xl border border-slate-800/80">
+                                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                                            <span>Automatically detects standard keys (<code>id_ed25519</code>, <code>id_rsa</code>) from your system behind the scenes.</span>
+                                        </div>
+                                    )}
+
+                                    {authMethod === 'custom_key' && (
                                         <div className="mt-3">
                                             <input
-                                                type="text"
-                                                value={linuxKey}
-                                                onChange={(e) => setLinuxKey(e.target.value)}
-                                                placeholder="~/.ssh/rhamify_app_deploy"
-                                                className="w-full px-3.5 py-2.5 bg-[#0E131F] border border-slate-800 rounded-xl text-white font-mono text-xs focus:ring-1 focus:ring-indigo-500"
+                                                 type="text"
+                                                 value={linuxKey}
+                                                 onChange={(e) => setLinuxKey(e.target.value)}
+                                                 placeholder="~/.ssh/id_ed25519"
+                                                 className="w-full px-3.5 py-2.5 bg-[#0E131F] border border-slate-800 rounded-xl text-white font-mono text-xs focus:ring-1 focus:ring-indigo-500"
                                             />
                                             <span className="text-[11px] text-slate-400 mt-1 block">
                                                 Path to stored SSH deploy key with 600 permissions.
                                             </span>
                                         </div>
-                                    ) : (
+                                    )}
+
+                                    {authMethod === 'password' && (
                                         <div className="mt-3">
                                             <input
                                                 type="password"
@@ -1170,6 +1806,116 @@ export default function Dashboard() {
                                     )}
                                 </div>
 
+                                {/* Full Live Command Execution & Terminal Console */}
+                                {(linuxIp || linuxUser || liveCommandLogs.length > 0) && (
+                                    <div className="pt-2">
+                                        <div className="p-3.5 bg-[#06080F] border border-slate-800 rounded-2xl space-y-2.5">
+                                            <div className="flex items-center justify-between">
+                                                <div className="flex items-center gap-2">
+                                                    <div className="w-6 h-6 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center">
+                                                        <Terminal className="w-3.5 h-3.5" />
+                                                    </div>
+                                                    <div>
+                                                        <div className="text-xs font-bold text-white flex items-center gap-2">
+                                                            <span>{isTestingConnection ? 'Executing Command on Remote VPS...' : 'Live SSH Execution Command'}</span>
+                                                            <span className={`px-1.5 py-0.2 rounded text-[10px] font-mono font-bold ${
+                                                                isTestingConnection ? 'bg-amber-500/20 text-amber-300 animate-pulse' : 'bg-emerald-500/20 text-emerald-300'
+                                                            }`}>
+                                                                {isTestingConnection ? 'Executing' : 'Live Ready'}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleCopyCommand(generatedLinuxCmd)}
+                                                    className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-mono flex items-center gap-1.5 transition-colors border border-slate-700/60"
+                                                >
+                                                    {copiedCmd ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                                                    <span>{copiedCmd ? 'Copied' : 'Copy Command'}</span>
+                                                </button>
+                                            </div>
+
+                                            {/* Primary Command Snippet */}
+                                            <div className="p-2.5 bg-[#030508] border border-slate-800/80 rounded-xl font-mono text-xs text-emerald-300 break-all select-all flex items-start gap-2 shadow-inner">
+                                                <span className="text-slate-500 select-none font-bold">$</span>
+                                                <div className="flex-1">
+                                                    <span className="text-emerald-300 font-semibold">{generatedLinuxCmd}</span>
+                                                    {isTestingConnection && (
+                                                        <span className="inline-block w-2 h-3.5 bg-emerald-400 ml-1.5 animate-pulse align-middle" />
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            {/* Live Diagnostics Log Output */}
+                                            {liveCommandLogs.length > 0 && (
+                                                <div className="pt-2 border-t border-slate-800/80 space-y-1.5">
+                                                    <div className="text-[10px] font-mono text-slate-400 font-bold uppercase tracking-wider flex items-center justify-between">
+                                                        <span>Live Command Output & Diagnostics</span>
+                                                        <span className="text-slate-500">{liveCommandLogs.length} events</span>
+                                                    </div>
+                                                    <div className="p-2.5 bg-black/60 border border-slate-800/60 rounded-xl max-h-36 overflow-y-auto space-y-1.5 text-[11px] font-mono">
+                                                        {liveCommandLogs.map((log, idx) => (
+                                                            <div key={idx} className="leading-relaxed">
+                                                                <div className="flex items-center gap-2">
+                                                                    <span className="text-slate-500 text-[10px]">[{log.time}]</span>
+                                                                    <span className={log.status === 'failed' ? 'text-rose-400 font-semibold' : (log.status === 'running' ? 'text-amber-300 font-semibold' : 'text-emerald-400 font-semibold')}>
+                                                                        $ {log.cmd}
+                                                                    </span>
+                                                                </div>
+                                                                {log.output && (
+                                                                    <div className="text-slate-300 pl-4 border-l border-slate-700/60 whitespace-pre-wrap text-[10px] mt-0.5">
+                                                                        {log.output}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* Interactive Passphrase Prompt inside Terminal console */}
+                                            {showPassphrasePrompt && (
+                                                <form
+                                                    onSubmit={handlePassphraseSubmit}
+                                                    className="p-3 bg-indigo-950/40 border border-indigo-500/40 rounded-xl space-y-2 animate-in fade-in duration-200"
+                                                >
+                                                    <div className="flex items-center gap-2 text-xs font-bold text-indigo-300">
+                                                        <Key className="w-4 h-4 text-indigo-400 flex-shrink-0" />
+                                                        <span>Enter passphrase for key '{passphraseKeyName}':</span>
+                                                    </div>
+                                                    <p className="text-[11px] text-slate-400">
+                                                        Your private key is protected with a passphrase. Type your passphrase below to unlock and proceed.
+                                                    </p>
+                                                    <div className="flex gap-2">
+                                                        <input
+                                                            type="password"
+                                                            autoFocus
+                                                            value={keyPassphrase}
+                                                            onChange={(e) => setKeyPassphrase(e.target.value)}
+                                                            placeholder="Enter key passphrase"
+                                                            className="flex-1 px-3.5 py-2 bg-[#0E131F] border border-indigo-500/40 rounded-lg text-white font-mono text-xs focus:ring-1 focus:ring-indigo-500"
+                                                        />
+                                                        <button
+                                                            type="submit"
+                                                            disabled={isTestingConnection}
+                                                            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors shadow-md shadow-indigo-600/30"
+                                                        >
+                                                            {isTestingConnection ? (
+                                                                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                                            ) : (
+                                                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                                            )}
+                                                            <span>Unlock & Connect</span>
+                                                        </button>
+                                                    </div>
+                                                </form>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+
                                 {/* Test Action Button */}
                                 <div className="pt-3">
                                     <button
@@ -1196,7 +1942,7 @@ export default function Dashboard() {
 
                         {/* Windows Server Configuration Details */}
                         {selectedOs === 'windows' && (
-                            <div className="mt-8 p-5 bg-[#080B12] border border-cyan-500/30 rounded-2xl space-y-5">
+                            <div className="mt-4 sm:mt-8 p-4 sm:p-5 bg-[#080B12] border border-cyan-500/30 rounded-2xl space-y-5">
                                 <div className="flex items-center justify-between pb-2 border-b border-slate-800">
                                     <div className="flex items-center gap-2">
                                         <Monitor className="w-4 h-4 text-cyan-400" />
@@ -1205,9 +1951,9 @@ export default function Dashboard() {
                                     <span className="text-[11px] font-mono text-slate-400">OpenSSH / WinRM</span>
                                 </div>
 
-                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                                    <div className="sm:col-span-2">
-                                        <label className="block text-xs font-medium text-slate-300 mb-1">
+                                <div className="grid grid-cols-12 gap-2 sm:gap-3">
+                                    <div className="col-span-8 sm:col-span-9">
+                                        <label className="block text-xs font-medium text-slate-300 mb-1 truncate">
                                             Windows Host / IP Address
                                         </label>
                                         <input
@@ -1218,8 +1964,8 @@ export default function Dashboard() {
                                             className="w-full px-3.5 py-2.5 bg-[#0E131F] border border-slate-800 rounded-xl text-white font-mono text-xs focus:ring-1 focus:ring-cyan-500"
                                         />
                                     </div>
-                                    <div>
-                                        <label className="block text-xs font-medium text-slate-300 mb-1">
+                                    <div className="col-span-4 sm:col-span-3">
+                                        <label className="block text-xs font-medium text-slate-300 mb-1 truncate">
                                             Port (SSH/WinRM)
                                         </label>
                                         <input
@@ -1227,7 +1973,7 @@ export default function Dashboard() {
                                             value={windowsPort}
                                             onChange={(e) => setWindowsPort(e.target.value)}
                                             placeholder="22"
-                                            className="w-full px-3.5 py-2.5 bg-[#0E131F] border border-slate-800 rounded-xl text-white font-mono text-xs focus:ring-1 focus:ring-cyan-500"
+                                            className="w-full px-3 sm:px-3.5 py-2.5 bg-[#0E131F] border border-slate-800 rounded-xl text-white font-mono text-xs focus:ring-1 focus:ring-cyan-500"
                                         />
                                     </div>
                                 </div>
@@ -1296,6 +2042,35 @@ export default function Dashboard() {
                                         />
                                     </div>
                                 </div>
+
+                                {/* Reactive Command Preview right after Windows IP & Username */}
+                                {(windowsIp || windowsUser) && (
+                                    <div className="mt-2.5 p-2.5 bg-[#06080F] border border-slate-800 rounded-xl space-y-1.5 animate-in fade-in duration-150">
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-1.5">
+                                                <span className="relative flex h-2 w-2">
+                                                    <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${isTestingConnection ? 'bg-amber-400' : 'bg-cyan-400'} opacity-75`}></span>
+                                                    <span className={`relative inline-flex rounded-full h-2 w-2 ${isTestingConnection ? 'bg-amber-500' : 'bg-cyan-500'}`}></span>
+                                                </span>
+                                                <span className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider">
+                                                    Command to Run:
+                                                </span>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => handleCopyCommand(generatedWinCmd)}
+                                                className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-mono flex items-center gap-1 transition-colors border border-slate-700/60"
+                                            >
+                                                {copiedCmd ? <Check className="w-3 h-3 text-cyan-400" /> : <Copy className="w-3 h-3" />}
+                                                <span>{copiedCmd ? 'Copied' : 'Copy'}</span>
+                                            </button>
+                                        </div>
+                                        <div className="p-2 bg-[#030508] border border-slate-800/80 rounded-lg font-mono text-xs text-cyan-300 break-all select-all flex items-center gap-2">
+                                            <span className="text-slate-600 select-none font-bold">$</span>
+                                            <span className="truncate">{generatedWinCmd}</span>
+                                        </div>
+                                    </div>
+                                )}
 
                                 {/* ADMINISTRATOR USER NOTIFICATION (Only shown if user attempts sign in as Administrator) */}
                                 {showWinAdminPrompt && (
@@ -1370,12 +2145,19 @@ export default function Dashboard() {
                                                     <button
                                                         type="button"
                                                         onClick={() => {
-                                                            if (!newWinAccountUser) return;
-                                                            setWindowsUser(newWinAccountUser);
+                                                            if (!newWinAccountUser || !newWinAccountUser.trim()) {
+                                                                triggerAlert('Please enter a username for the new Windows sub-account.', 'Username Required', 'warning');
+                                                                return;
+                                                            }
+                                                            if (!newWinAccountPassword || !newWinAccountPassword.trim()) {
+                                                                triggerAlert('Please set a password for the new Windows sub-account.', 'Password Required', 'warning');
+                                                                return;
+                                                            }
+                                                            setWindowsUser(newWinAccountUser.trim());
                                                             setShowWinAdminPrompt(false);
                                                             setShowWinAccountForm(false);
                                                             setWinAccountCreatedSuccess(true);
-                                                            handleTestAndConnect('windows', newWinAccountUser);
+                                                            handleTestAndConnect('windows', newWinAccountUser.trim());
                                                         }}
                                                         className="px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold transition-all shadow-md flex items-center gap-1.5"
                                                     >
@@ -1394,19 +2176,6 @@ export default function Dashboard() {
                                         )}
                                     </div>
                                 )}
-
-                                <div>
-                                    <label className="block text-xs font-medium text-slate-300 mb-1">
-                                        IIS / App Directory Path
-                                    </label>
-                                    <input
-                                        type="text"
-                                        value={windowsAppDir}
-                                        onChange={(e) => setWindowsAppDir(e.target.value)}
-                                        placeholder="C:\inetpub\wwwroot\rhamify_app"
-                                        className="w-full px-3.5 py-2.5 bg-[#0E131F] border border-slate-800 rounded-xl text-white font-mono text-xs focus:ring-1 focus:ring-cyan-500"
-                                    />
-                                </div>
 
                                 {/* Optional OpenSSH Command on Windows */}
                                 <div className="pt-2 border-t border-slate-800/80">
@@ -1431,6 +2200,78 @@ export default function Dashboard() {
                                     )}
                                 </div>
 
+                                {/* Full Live Command Execution & Terminal Console (Windows) */}
+                                {(windowsIp || windowsUser || liveCommandLogs.length > 0) && (
+                                    <div className="pt-2">
+                                        <div className="p-3.5 bg-[#06080F] border border-slate-800 rounded-2xl space-y-2.5">
+                                            <div className="flex items-center justify-between">
+                                                <div className="flex items-center gap-2">
+                                                    <div className="w-6 h-6 rounded-lg bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 flex items-center justify-center">
+                                                        <Terminal className="w-3.5 h-3.5" />
+                                                    </div>
+                                                    <div>
+                                                        <div className="text-xs font-bold text-white flex items-center gap-2">
+                                                            <span>{isTestingConnection ? 'Executing OpenSSH Command on Windows Host...' : 'Live Windows Command Stream'}</span>
+                                                            <span className={`px-1.5 py-0.2 rounded text-[10px] font-mono font-bold ${
+                                                                isTestingConnection ? 'bg-amber-500/20 text-amber-300 animate-pulse' : 'bg-cyan-500/20 text-cyan-300'
+                                                            }`}>
+                                                                {isTestingConnection ? 'Executing' : 'Live Ready'}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleCopyCommand(generatedWinCmd)}
+                                                    className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-mono flex items-center gap-1.5 transition-colors border border-slate-700/60"
+                                                >
+                                                    {copiedCmd ? <Check className="w-3 h-3 text-cyan-400" /> : <Copy className="w-3 h-3" />}
+                                                    <span>{copiedCmd ? 'Copied' : 'Copy Command'}</span>
+                                                </button>
+                                            </div>
+
+                                            {/* Primary Command Snippet */}
+                                            <div className="p-2.5 bg-[#030508] border border-slate-800/80 rounded-xl font-mono text-xs text-cyan-300 break-all select-all flex items-start gap-2 shadow-inner">
+                                                <span className="text-slate-500 select-none font-bold">$</span>
+                                                <div className="flex-1">
+                                                    <span className="text-cyan-300 font-semibold">{generatedWinCmd}</span>
+                                                    {isTestingConnection && (
+                                                        <span className="inline-block w-2 h-3.5 bg-cyan-400 ml-1.5 animate-pulse align-middle" />
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            {/* Live Diagnostics Log Output */}
+                                            {liveCommandLogs.length > 0 && (
+                                                <div className="pt-2 border-t border-slate-800/80 space-y-1.5">
+                                                    <div className="text-[10px] font-mono text-slate-400 font-bold uppercase tracking-wider flex items-center justify-between">
+                                                        <span>Live Command Output & Diagnostics</span>
+                                                        <span className="text-slate-500">{liveCommandLogs.length} events</span>
+                                                    </div>
+                                                    <div className="p-2.5 bg-black/60 border border-slate-800/60 rounded-xl max-h-36 overflow-y-auto space-y-1.5 text-[11px] font-mono">
+                                                        {liveCommandLogs.map((log, idx) => (
+                                                            <div key={idx} className="leading-relaxed">
+                                                                <div className="flex items-center gap-2">
+                                                                    <span className="text-slate-500 text-[10px]">[{log.time}]</span>
+                                                                    <span className={log.status === 'failed' ? 'text-rose-400 font-semibold' : (log.status === 'running' ? 'text-amber-300 font-semibold' : 'text-cyan-400 font-semibold')}>
+                                                                        $ {log.cmd}
+                                                                    </span>
+                                                                </div>
+                                                                {log.output && (
+                                                                    <div className="text-slate-300 pl-4 border-l border-slate-700/60 whitespace-pre-wrap text-[10px] mt-0.5">
+                                                                        {log.output}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+
                                 {/* Test Action Button */}
                                 <div className="pt-3">
                                     <button
@@ -1454,6 +2295,51 @@ export default function Dashboard() {
                                 </div>
                             </div>
                         )}
+                    </div>
+                )}
+            </div>
+        </div>
+    )}
+
+            {/* Custom Center Verification Alert Modal */}
+            {centerAlert && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+                    {/* Backdrop */}
+                    <div
+                        className="fixed inset-0 bg-black/80 backdrop-blur-sm transition-opacity"
+                        onClick={() => setCenterAlert(null)}
+                    />
+
+                    {/* Centered Alert Box */}
+                    <div className="relative bg-[#0E131F] border border-slate-800 rounded-2xl max-w-sm w-full p-6 shadow-2xl z-10 text-center animate-in fade-in zoom-in-95 duration-150">
+                        <button
+                            type="button"
+                            onClick={() => setCenterAlert(null)}
+                            className="absolute top-3.5 right-3.5 p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                        >
+                            <X className="w-4 h-4" />
+                        </button>
+
+                        <div className="mx-auto w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center mb-4 text-amber-400 shadow-lg shadow-amber-950/40">
+                            <ShieldAlert className="w-6 h-6" />
+                        </div>
+
+                        <h4 className="text-base font-bold text-white mb-1.5">
+                            {centerAlert.title || 'Verification Notice'}
+                        </h4>
+
+                        <p className="text-xs text-slate-300 leading-relaxed mb-5">
+                            {centerAlert.message}
+                        </p>
+
+                        <button
+                            type="button"
+                            onClick={() => setCenterAlert(null)}
+                            className="w-full py-2.5 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs transition-all shadow-md shadow-indigo-600/30"
+                            autoFocus
+                        >
+                            {centerAlert.buttonText || 'Understood'}
+                        </button>
                     </div>
                 </div>
             )}
