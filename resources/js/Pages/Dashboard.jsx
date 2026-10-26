@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { Head, usePage } from '@inertiajs/react';
 import {
@@ -36,13 +36,13 @@ import {
     Power,
     Globe,
     Trash2,
-    RotateCcw,
     Layers,
     Sliders,
-    ArrowUpRight
+    ArrowUpRight,
+    Pencil
 } from 'lucide-react';
 
-export default function Dashboard() {
+export default function Dashboard({ initialProjects = [] }) {
     const user = usePage().props.auth.user;
 
     // Quick deploy state
@@ -68,7 +68,7 @@ export default function Dashboard() {
     // Root prompt & sub-account creation state for Linux
     const [showRootPrompt, setShowRootPrompt] = useState(false);
     const [showNewAccountForm, setShowNewAccountForm] = useState(false);
-    const [newAccountUser, setNewAccountUser] = useState('rhamifytechnology');
+    const [newAccountUser, setNewAccountUser] = useState(user.github_username || 'deployer');
     const [newAccountPassword, setNewAccountPassword] = useState('');
     const [accountCreatedSuccess, setAccountCreatedSuccess] = useState(false);
 
@@ -97,11 +97,34 @@ export default function Dashboard() {
     const [setupStep, setSetupStep] = useState('credentials'); // 'credentials' | 'explorer'
     const [explorerTab, setExplorerTab] = useState('existing'); // 'existing' | 'new' | 'logs'
     const [folderSearchQuery, setFolderSearchQuery] = useState('');
-    const [serverFolders, setServerFolders] = useState([]);
+    const [serverFolders, setServerFolders] = useState(() => {
+        try {
+            const saved = localStorage.getItem('vps_server_folders');
+            if (saved) {
+                const parsed = JSON.parse(saved);
+                if (Array.isArray(parsed)) {
+                    return parsed.map(f => ({
+                        ...f,
+                        domain: (f.domain && !f.domain.includes('nip.io')) ? f.domain : ''
+                    }));
+                }
+            }
+            return [];
+        } catch (e) {
+            return [];
+        }
+    });
 
     // Live Command Visibility State
     const [copiedCmd, setCopiedCmd] = useState(false);
-    const [liveCommandLogs, setLiveCommandLogs] = useState([]);
+    const [liveCommandLogs, setLiveCommandLogs] = useState(() => {
+        try {
+            const saved = localStorage.getItem('vps_live_command_logs');
+            return saved ? JSON.parse(saved) : [];
+        } catch (e) {
+            return [];
+        }
+    });
 
     const handleCopyCommand = (cmdText) => {
         if (!cmdText) return;
@@ -121,7 +144,78 @@ export default function Dashboard() {
     // Connection testing state
     const [isTestingConnection, setIsTestingConnection] = useState(false);
     const [testLog, setTestLog] = useState(null);
-    const [connectedServer, setConnectedServer] = useState(null);
+    const [connectedServer, setConnectedServer] = useState(() => {
+        try {
+            const saved = localStorage.getItem('vps_connected_server');
+            return saved ? JSON.parse(saved) : null;
+        } catch (e) {
+            return null;
+        }
+    });
+
+    // Sync connected server session to localStorage
+    useEffect(() => {
+        try {
+            if (connectedServer) {
+                localStorage.setItem('vps_connected_server', JSON.stringify(connectedServer));
+            } else {
+                localStorage.removeItem('vps_connected_server');
+            }
+        } catch (e) {}
+    }, [connectedServer]);
+
+    useEffect(() => {
+        try {
+            if (serverFolders && serverFolders.length > 0) {
+                localStorage.setItem('vps_server_folders', JSON.stringify(serverFolders));
+            } else if (!connectedServer) {
+                localStorage.removeItem('vps_server_folders');
+            }
+        } catch (e) {}
+    }, [serverFolders, connectedServer]);
+
+    useEffect(() => {
+        try {
+            if (liveCommandLogs && liveCommandLogs.length > 0) {
+                localStorage.setItem('vps_live_command_logs', JSON.stringify(liveCommandLogs));
+            } else if (!connectedServer) {
+                localStorage.removeItem('vps_live_command_logs');
+            }
+        } catch (e) {}
+    }, [liveCommandLogs, connectedServer]);
+
+    // Pre-populate input fields with connected server info if empty
+    useEffect(() => {
+        if (connectedServer) {
+            if (connectedServer.type === 'linux') {
+                if (!linuxIp && connectedServer.ip) setLinuxIp(connectedServer.ip);
+                if (!linuxUser && connectedServer.user) setLinuxUser(connectedServer.user);
+                if (connectedServer.port) setLinuxPort(connectedServer.port);
+            } else if (connectedServer.type === 'windows') {
+                if (!windowsIp && connectedServer.ip) setWindowsIp(connectedServer.ip);
+                if (!windowsUser && connectedServer.user) setWindowsUser(connectedServer.user);
+                if (connectedServer.port) setWindowsPort(connectedServer.port);
+            }
+        }
+    }, [connectedServer]);
+
+    const openServerExplorer = (tab = 'existing') => {
+        setExplorerTab(tab);
+        setSetupStep('explorer');
+        setSetupModalOpen(true);
+    };
+
+    const handleDisconnectServer = () => {
+        setConnectedServer(null);
+        setServerFolders([]);
+        setLiveCommandLogs([]);
+        try {
+            localStorage.removeItem('vps_connected_server');
+            localStorage.removeItem('vps_server_folders');
+            localStorage.removeItem('vps_live_command_logs');
+        } catch (e) {}
+        triggerAlert('Server session disconnected. You can connect again at any time.', 'Server Disconnected', 'info');
+    };
 
     const generatedLinuxCmd = (() => {
         const user = linuxUser || '<username>';
@@ -132,79 +226,199 @@ export default function Dashboard() {
     })();
     const generatedWinCmd = `ssh -p ${windowsPort || '22'} ${windowsUser || '<username>'}@${windowsIp || '<server-ip>'}`;
 
-    const defaultProjects = [
-        {
-            id: 'proj-1',
-            name: 'rhamify_app',
-            description: 'Core Laravel + Inertia.js web platform with queue workers, Redis cache, and Supervisor daemons.',
-            ip: '147.93.85.120',
-            port: '22',
-            user: 'rhamifytechnology',
-            os: 'Ubuntu 24.04 LTS (x86_64)',
-            type: 'linux',
-            branch: 'main',
-            commit: '47317d1',
-            commitMessage: 'fix(mobile): optimize header layout, prevent button wrapping',
-            lastDeployTime: '14 mins ago',
-            deployDuration: '18s',
-            domain: 'new.rhamify.com',
-            isConnected: true,
-            status: 'Online & Synced',
-            isDeploying: false,
-            deployProgress: null,
-            lastVisited: 'Just now',
-            lastVisitedTimestamp: Date.now(),
-        },
-        {
-            id: 'proj-2',
-            name: 'gui-vps-management',
-            description: 'Automated VPS deployment, cloud server provisioning, and daemon orchestration dashboard.',
-            ip: '147.93.85.130',
-            port: '22',
-            user: 'deployer',
-            os: 'Windows Server 2022 (WinRM / OpenSSH)',
-            type: 'windows',
-            branch: 'feature/vps-gui',
-            commit: '8cad496',
-            commitMessage: 'feat(ui): implement interactive VPS wizard & real-time deployment status',
-            lastDeployTime: '3 hours ago',
-            deployDuration: '24s',
-            domain: 'vps.rhamify.com',
-            isConnected: false,
-            status: 'Disconnected (Logged out)',
-            isDeploying: false,
-            deployProgress: null,
-            lastVisited: '2 hours ago',
-            lastVisitedTimestamp: Date.now() - 7200000,
+    const [projects, setProjects] = useState(() => {
+        if (Array.isArray(initialProjects) && initialProjects.length > 0) {
+            return initialProjects;
         }
-    ];
-
-    const [projects, setProjects] = useState([]);
-
-    // Toggle server connection on a project card (Connect Server / Disconnect Server)
-    const toggleServerConnection = (projectId) => {
-        const now = Date.now();
-        setProjects(prevProjects => {
-            const updated = prevProjects.map(proj => {
-                if (proj.id === projectId) {
-                    const nextConnected = !proj.isConnected;
-                    return {
-                        ...proj,
-                        isConnected: nextConnected,
-                        status: nextConnected ? 'Online & Synced' : 'Disconnected (Logged out)',
-                        lastVisited: 'Just now',
-                        lastVisitedTimestamp: now,
-                    };
+        try {
+            const saved = localStorage.getItem('vps_projects');
+            if (saved) {
+                const parsed = JSON.parse(saved);
+                if (Array.isArray(parsed)) {
+                    return parsed.filter(p => p.id !== 'proj-1' && p.id !== 'proj-2' && p.ip !== '147.93.85.120' && p.ip !== '147.93.85.130');
                 }
-                return proj;
-            });
-            // Automatically arrange by last visited (newest first)
-            return [...updated].sort((a, b) => b.lastVisitedTimestamp - a.lastVisitedTimestamp);
-        });
+            }
+        } catch (e) {}
+        return [];
+    });
+
+    const [isCheckingAllAuth, setIsCheckingAllAuth] = useState(false);
+    const [editingDomainProjectId, setEditingDomainProjectId] = useState(null);
+    const [editingDomainValue, setEditingDomainValue] = useState('');
+
+    const formatLastVisited = (proj) => {
+        if (!proj) return 'Recently';
+        if (proj.lastVisited) return proj.lastVisited;
+        if (proj.last_visited) return proj.last_visited;
+        const ts = proj.last_visited_timestamp || proj.lastVisitedTimestamp;
+        if (ts) {
+            const diff = Math.floor((Date.now() - Number(ts)) / 1000);
+            if (diff < 60) return 'Just now';
+            if (diff < 3600) return `${Math.max(1, Math.floor(diff / 60))}m ago`;
+            if (diff < 86400) return `${Math.max(1, Math.floor(diff / 3600))}h ago`;
+            return `${Math.max(1, Math.floor(diff / 86400))}d ago`;
+        }
+        if (proj.updated_at) {
+            const diff = Math.floor((Date.now() - new Date(proj.updated_at).getTime()) / 1000);
+            if (diff < 60) return 'Just now';
+            if (diff < 3600) return `${Math.max(1, Math.floor(diff / 60))}m ago`;
+            if (diff < 86400) return `${Math.max(1, Math.floor(diff / 3600))}h ago`;
+            return `${Math.max(1, Math.floor(diff / 86400))}d ago`;
+        }
+        return 'Recently';
     };
 
-    // Trigger ongoing deployment on a specific project card
-    const handleProjectDeploy = (projectId) => {
+    const startEditingDomain = (project) => {
+        setEditingDomainProjectId(project.id);
+        setEditingDomainValue(project.domain || project.ip || '');
+    };
+
+    const handleSaveDomain = async (projectId) => {
+        const cleanDomain = editingDomainValue.trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+        
+        try {
+            const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+            const res = await fetch(`/vps/projects/${projectId}`, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': csrfToken || '',
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+                body: JSON.stringify({ domain: cleanDomain })
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                setProjects(prev => prev.map(p => p.id === projectId ? { ...p, domain: cleanDomain } : p));
+                setEditingDomainProjectId(null);
+                triggerAlert(`Project live domain updated to ${cleanDomain || 'server IP'}`, 'Domain Updated', 'success');
+            } else {
+                triggerAlert(data.message || 'Failed to update domain.', 'Update Failed', 'error');
+            }
+        } catch (err) {
+            triggerAlert(`Error updating domain: ${err.message}`, 'Update Error', 'error');
+        }
+    };
+
+    useEffect(() => {
+        if (Array.isArray(initialProjects) && initialProjects.length > 0) {
+            setProjects(initialProjects);
+        }
+    }, [initialProjects]);
+
+    useEffect(() => {
+        try {
+            localStorage.setItem('vps_projects', JSON.stringify(projects));
+        } catch (e) {}
+    }, [projects]);
+
+    // Live Server Authentication Monitoring (Single Project)
+    const handleVerifyProjectAuth = async (projectId) => {
+        setProjects(prev => prev.map(p => p.id === projectId ? { ...p, isCheckingAuth: true } : p));
+        
+        try {
+            const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+            const res = await fetch(`/vps/projects/${projectId}/check-auth`, {
+                method: 'POST',
+                headers: {
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': csrfToken || '',
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            });
+            const data = await res.json();
+            if (data.project) {
+                setProjects(prev => prev.map(p => p.id === projectId ? {
+                    ...p,
+                    ...data.project,
+                    isCheckingAuth: false,
+                    isConnected: data.project.is_connected,
+                    auth_status: data.project.auth_status,
+                    latency_ms: data.project.latency_ms,
+                    last_auth_message: data.project.last_auth_message,
+                    status: data.project.is_connected ? 'Live & Authenticated' : 'Auth Failed / Offline'
+                } : p));
+
+                if (data.success) {
+                    triggerAlert(
+                        `SSH Authentication Verified: ${data.project.user}@${data.project.ip} responded in ${data.latency_ms || 0}ms.`,
+                        'Server Authenticated & Online',
+                        'success'
+                    );
+                } else {
+                    triggerAlert(
+                        data.message || 'Server authentication could not be established.',
+                        'Server Auth Failed',
+                        'error'
+                    );
+                }
+            } else {
+                setProjects(prev => prev.map(p => p.id === projectId ? { ...p, isCheckingAuth: false } : p));
+                triggerAlert(data.message || 'Unable to probe server authentication.', 'Verification Error', 'error');
+            }
+        } catch (err) {
+            setProjects(prev => prev.map(p => p.id === projectId ? { ...p, isCheckingAuth: false } : p));
+            triggerAlert(`Network error: ${err.message}`, 'Verification Error', 'error');
+        }
+    };
+
+    // Live Server Authentication Monitoring (All Projects in Parallel)
+    const handleVerifyAllProjectsAuth = async (silent = false) => {
+        if (isCheckingAllAuth || projects.length === 0) return;
+        setIsCheckingAllAuth(true);
+
+        try {
+            const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+            const res = await fetch('/vps/projects/check-all-auth', {
+                method: 'POST',
+                headers: {
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': csrfToken || '',
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            });
+            const data = await res.json();
+            if (res.ok && data.success && Array.isArray(data.projects)) {
+                setProjects(data.projects.map(p => ({
+                    ...p,
+                    isConnected: p.is_connected,
+                    auth_status: p.auth_status,
+                    status: p.is_connected ? 'Live & Authenticated' : 'Auth Failed / Offline'
+                })));
+                if (!silent) {
+                    const verifiedCount = data.summary?.filter(s => s.success).length || 0;
+                    triggerAlert(
+                        `Monitored ${data.projects.length} server(s): ${verifiedCount} authenticated and online.`,
+                        'Server Monitoring Complete',
+                        verifiedCount === data.projects.length ? 'success' : 'info'
+                    );
+                }
+            }
+        } catch (err) {
+            if (!silent) {
+                triggerAlert(`Error checking server authentications: ${err.message}`, 'Monitoring Error', 'error');
+            }
+        } finally {
+            setIsCheckingAllAuth(false);
+        }
+    };
+
+    // Automatically verify server authentications in background on load
+    useEffect(() => {
+        if (projects.length > 0) {
+            const timer = setTimeout(() => {
+                handleVerifyAllProjectsAuth(true);
+            }, 1200);
+            return () => clearTimeout(timer);
+        }
+    }, []);
+
+    // Real remote deployment on remote VPS node
+    const handleProjectDeploy = async (projectId) => {
+        const targetProj = projects.find(p => p.id === projectId);
+        if (!targetProj) return;
+
         const now = Date.now();
         setProjects(prevProjects => {
             const updated = prevProjects.map(p => {
@@ -212,7 +426,7 @@ export default function Dashboard() {
                     return {
                         ...p,
                         isDeploying: true,
-                        deployProgress: 'Starting automated build & deployment sequence...',
+                        deployProgress: `Connecting to ${p.ip} and pulling latest git commits...`,
                         lastVisited: 'Just now',
                         lastVisitedTimestamp: now,
                     };
@@ -222,49 +436,83 @@ export default function Dashboard() {
             return [...updated].sort((a, b) => b.lastVisitedTimestamp - a.lastVisitedTimestamp);
         });
 
-        setTimeout(() => {
-            setProjects(prev => prev.map(p => p.id === projectId ? { ...p, deployProgress: 'Pulling git updates & compiling assets...' } : p));
-        }, 1200);
+        try {
+            const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+            const res = await fetch('/vps/deploy', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': csrfToken || '',
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+                body: JSON.stringify({
+                    project_id: targetProj.id,
+                    ip: targetProj.ip,
+                    port: targetProj.port || 22,
+                    user: targetProj.user,
+                    auth_method: targetProj.auth_method || authMethod,
+                    password: targetProj.type === 'linux' ? linuxPassword : windowsPassword,
+                    key_path: targetProj.type === 'linux' ? linuxKey : '',
+                    project_path: targetProj.path || `/var/www/${targetProj.name}`,
+                    branch: targetProj.branch || 'main',
+                })
+            });
 
-        setTimeout(() => {
-            setProjects(prev => prev.map(p => p.id === projectId ? { ...p, deployProgress: 'Running database migrations & restarting daemons...' } : p));
-        }, 2200);
+            const data = await res.json();
 
-        setTimeout(() => {
+            if (!res.ok || !data.success) {
+                setProjects(prev => prev.map(p => p.id === projectId ? {
+                    ...p,
+                    isDeploying: false,
+                    deployProgress: null,
+                } : p));
+                triggerAlert(data.message || 'Remote deployment failed. Check server permissions and git configuration.', 'Deployment Failed', 'error');
+                return;
+            }
+
+            setProjects(prev => prev.map(p => p.id === projectId ? {
+                ...p,
+                ...(data.project || {}),
+                isDeploying: false,
+                deployProgress: null,
+                isConnected: true,
+                auth_status: 'authenticated',
+                status: 'Live & Authenticated',
+                lastDeployTime: 'Just now',
+                deployDuration: data.deploy_duration || '3s',
+                commit: data.commit || 'HEAD',
+                commitMessage: data.commit_message || 'Pulled updates from remote',
+                lastVisited: 'Just now',
+                lastVisitedTimestamp: Date.now(),
+            } : p));
+
+            triggerAlert(`Project "${targetProj.name}" successfully deployed on ${targetProj.ip}! ${data.commit_message || ''}`, 'Deployment Succeeded', 'success');
+
+        } catch (err) {
             setProjects(prev => prev.map(p => p.id === projectId ? {
                 ...p,
                 isDeploying: false,
                 deployProgress: null,
-                isConnected: true,
-                status: 'Online & Synced',
-                lastDeployTime: 'Just now',
-                deployDuration: '18s',
-                commit: 'a1f89c2',
-                commitMessage: 'chore(deploy): automated production sync & asset compilation',
-                lastVisited: 'Just now',
-                lastVisitedTimestamp: Date.now(),
             } : p));
-        }, 3200);
+            triggerAlert('Network error during deployment: ' + err.message, 'Deployment Error', 'error');
+        }
     };
 
-    const removeProject = (projectId) => {
+    const removeProject = async (projectId) => {
+        try {
+            const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+            await fetch(`/vps/projects/${projectId}`, {
+                method: 'DELETE',
+                headers: {
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': csrfToken || '',
+                    'X-Requested-With': 'XMLHttpRequest',
+                }
+            });
+        } catch (e) {}
         setProjects(prev => prev.filter(p => p.id !== projectId));
-    };
-
-    const restoreSampleProjects = () => {
-        setProjects(defaultProjects);
-    };
-
-    const handleQuickDeploy = () => {
-        setIsDeploying(true);
-        setDeployStatus('Starting deployment sequence...');
-        setTimeout(() => setDeployStatus('Entering maintenance mode & pulling main branch...'), 800);
-        setTimeout(() => setDeployStatus('Installing composer packages & compiling assets...'), 1600);
-        setTimeout(() => setDeployStatus('Running database migrations & restarting queue...'), 2400);
-        setTimeout(() => {
-            setIsDeploying(false);
-            setDeployStatus('Deployment completed successfully! Live on new.rhamify.com');
-        }, 3200);
+        triggerAlert('Project removed from your dashboard and database.', 'Project Removed', 'info');
     };
 
     const handleSignInAttempt = (os) => {
@@ -414,8 +662,18 @@ export default function Dashboard() {
             if (data.commands && Array.isArray(data.commands)) {
                 setLiveCommandLogs(data.commands);
             }
-            setConnectedServer(data.server);
+            const fullServer = {
+                ...data.server,
+                auth_method: authMethod === 'custom_key' ? 'key' : authMethod,
+                password: targetPassword,
+                key_path: targetKeyPath,
+                key_passphrase: currentPassphrase || null,
+            };
+            setConnectedServer(fullServer);
             setServerFolders(data.folders || []);
+            try {
+                localStorage.setItem('vps_connected_server', JSON.stringify(fullServer));
+            } catch (e) {}
             setNewProjDir(os === 'linux' ? '/var/www/' : 'C:\\inetpub\\wwwroot\\');
             setSetupStep('explorer');
             setExplorerTab('existing');
@@ -451,51 +709,68 @@ export default function Dashboard() {
         handleTestAndConnect('linux', null, keyPassphrase);
     };
 
-    const handleSelectServerFolder = (folder) => {
-        const newProject = {
-            id: 'proj-' + Date.now(),
+    const handleSelectServerFolder = async (folder) => {
+        const payload = {
             name: folder.name,
-            description: folder.description || `${folder.framework} project on ${connectedServer.os}`,
+            description: folder.description || `${folder.framework || 'Web'} project on ${connectedServer?.os || 'VPS'}`,
             ip: connectedServer.ip,
-            port: connectedServer.port,
+            port: connectedServer.port || 22,
             user: connectedServer.user,
+            auth_method: connectedServer.auth_method || authMethod,
+            password: connectedServer.password || (connectedServer.type === 'linux' ? linuxPassword : windowsPassword),
+            key_path: connectedServer.key_path || (connectedServer.type === 'linux' ? linuxKey : ''),
+            key_passphrase: connectedServer.key_passphrase || keyPassphrase,
             os: connectedServer.os,
             type: connectedServer.type,
             branch: folder.branch || 'main',
-            commit: folder.commit || '47317d1',
-            commitMessage: 'feat(deploy): linked server directory ' + folder.path,
-            lastDeployTime: 'Just now',
-            deployDuration: '12s',
-            domain: folder.domain || `${folder.name}.rhamify.com`,
+            commit: folder.commit || 'live',
+            commit_message: folder.commitMessage || `Directory on ${connectedServer.ip}`,
+            last_deploy_time: 'Linked just now',
+            deploy_duration: '—',
+            domain: (folder.domain && !folder.domain.includes('nip.io')) ? folder.domain : null,
             path: folder.path,
             framework: folder.framework,
-            isConnected: true,
-            status: 'Online & Synced',
-            isDeploying: false,
-            deployProgress: null,
-            lastVisited: 'Just now',
-            lastVisitedTimestamp: Date.now(),
+            git_url: folder.gitUrl || null,
         };
 
-        const existingIndex = projects.findIndex(p => p.ip === connectedServer.ip && p.name === folder.name);
-        if (existingIndex >= 0) {
-            setProjects(prev => {
-                const copy = [...prev];
-                copy[existingIndex] = {
-                    ...copy[existingIndex],
-                    isConnected: true,
-                    status: 'Online & Synced',
-                    lastVisited: 'Just now',
-                    lastVisitedTimestamp: Date.now()
-                };
-                return copy.sort((a, b) => b.lastVisitedTimestamp - a.lastVisitedTimestamp);
+        try {
+            const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+            const res = await fetch('/vps/projects', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': csrfToken || '',
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+                body: JSON.stringify(payload)
             });
-        } else {
-            setProjects(prev => [newProject, ...prev]);
-        }
 
-        setSetupModalOpen(false);
-        triggerAlert(`Project "${folder.name}" (${folder.path}) is now active on your dashboard.`, 'Project Successfully Linked', 'success');
+            const data = await res.json();
+            if (res.ok && data.success && data.project) {
+                const savedProject = {
+                    ...data.project,
+                    isConnected: true,
+                    auth_status: 'authenticated',
+                    status: 'Live & Authenticated',
+                };
+                setProjects(prev => {
+                    const existingIndex = prev.findIndex(p => p.id === savedProject.id || (p.ip === savedProject.ip && p.path === savedProject.path));
+                    if (existingIndex >= 0) {
+                        const copy = [...prev];
+                        copy[existingIndex] = savedProject;
+                        return copy;
+                    }
+                    return [savedProject, ...prev];
+                });
+                setSetupModalOpen(false);
+                triggerAlert(`Project "${folder.name}" (${folder.path}) has been saved to your account and linked to the live server.`, 'Project Successfully Linked', 'success');
+            } else {
+                triggerAlert(data.message || 'Failed to save project to database.', 'Save Error', 'error');
+            }
+        } catch (err) {
+            triggerAlert(`Error saving project: ${err.message}`, 'Save Error', 'error');
+        }
     };
 
     const handleCreateNewProject = async (e) => {
@@ -541,7 +816,46 @@ export default function Dashboard() {
                 return;
             }
 
-            const newProject = {
+            // Persist the newly created project in MySQL
+            const saveRes = await fetch('/vps/projects', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': csrfToken || '',
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+                body: JSON.stringify({
+                    name: cleanName,
+                    description: `Live ${newProjType.toUpperCase()} project created on ${connectedServer?.ip} at ${fullPath}`,
+                    ip: connectedServer?.ip,
+                    port: connectedServer?.port || 22,
+                    user: connectedServer?.user,
+                    auth_method: connectedServer?.auth_method || authMethod,
+                    password: connectedServer?.password || (connectedServer?.type === 'linux' ? linuxPassword : windowsPassword),
+                    key_path: connectedServer?.key_path || (connectedServer?.type === 'linux' ? linuxKey : ''),
+                    key_passphrase: connectedServer?.key_passphrase || keyPassphrase,
+                    os: connectedServer?.os,
+                    type: connectedServer?.type,
+                    branch: newProjBranch.trim() || 'main',
+                    commit: 'live-init',
+                    commit_message: `chore(init): initialized project directory on ${connectedServer?.ip}`,
+                    last_deploy_time: 'Just now',
+                    deploy_duration: '6s',
+                    domain: newProjDomain.trim() || connectedServer?.ip,
+                    path: fullPath,
+                    git_url: newProjGit.trim() || null,
+                    framework: newProjType === 'laravel' ? 'Laravel' : newProjType === 'node' ? 'Node.js / Express' : newProjType === 'python' ? 'Python / Django' : 'Static Web / HTML',
+                })
+            });
+
+            const saveData = await saveRes.json();
+            const projectToUse = (saveRes.ok && saveData.success && saveData.project) ? {
+                ...saveData.project,
+                isConnected: true,
+                auth_status: 'authenticated',
+                status: 'Live & Authenticated',
+            } : {
                 id: 'proj-' + Date.now(),
                 name: cleanName,
                 description: `Live ${newProjType.toUpperCase()} project created on ${connectedServer?.ip} at ${fullPath}`,
@@ -555,19 +869,19 @@ export default function Dashboard() {
                 commitMessage: `chore(init): initialized project directory on ${connectedServer?.ip}`,
                 lastDeployTime: 'Just now',
                 deployDuration: '6s',
-                domain: newProjDomain.trim() || `${cleanName}.${connectedServer?.ip}.nip.io`,
+                domain: newProjDomain.trim() || connectedServer?.ip,
                 path: fullPath,
                 gitUrl: newProjGit.trim(),
-                framework: newProjType === 'laravel' ? 'Laravel 11 (PHP 8.4)' : newProjType === 'node' ? 'Node.js / Express' : newProjType === 'python' ? 'Python / Django' : 'Static Web / HTML',
+                framework: newProjType === 'laravel' ? 'Laravel' : newProjType === 'node' ? 'Node.js / Express' : newProjType === 'python' ? 'Python / Django' : 'Static Web / HTML',
                 isConnected: true,
-                status: 'Online & Synced',
+                status: 'Live & Authenticated',
                 isDeploying: false,
                 deployProgress: null,
                 lastVisited: 'Just now',
                 lastVisitedTimestamp: Date.now(),
             };
 
-            setProjects(prev => [newProject, ...prev]);
+            setProjects(prev => [projectToUse, ...prev]);
             
             // Add to server folders list
             setServerFolders(prev => [
@@ -575,13 +889,13 @@ export default function Dashboard() {
                     id: 'fold-' + Date.now(),
                     name: cleanName,
                     path: fullPath,
-                    framework: newProject.framework,
+                    framework: projectToUse.framework,
                     type: newProjType,
-                    branch: newProject.branch,
-                    commit: newProject.commit,
+                    branch: projectToUse.branch,
+                    commit: projectToUse.commit,
                     lastUpdated: 'Just now',
-                    domain: newProject.domain,
-                    description: newProject.description
+                    domain: projectToUse.domain,
+                    description: projectToUse.description
                 },
                 ...prev
             ]);
@@ -601,54 +915,115 @@ export default function Dashboard() {
         <AuthenticatedLayout>
             <Head title="VPS Management Dashboard" />
 
-            <div className="py-6 sm:py-8 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto space-y-6 sm:space-y-8">
+            <div className="py-4 sm:py-8 px-3 sm:px-6 lg:px-8 max-w-7xl mx-auto space-y-3.5 sm:space-y-6">
                
-                {/* Onboarding Intent Quick Card */}
-                <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-indigo-950/40 via-purple-950/20 to-slate-900 border border-indigo-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                    <div className="flex items-start sm:items-center gap-3 min-w-0">
-                        <div className="w-10 h-10 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center flex-shrink-0 mt-0.5 sm:mt-0">
-                            <Sparkles className="w-5 h-5 text-indigo-400" />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                            <div className="flex flex-wrap items-center gap-2">
-                                <span className="text-xs sm:text-sm font-bold text-white">VPS Connection Assistant</span>
-                                <span className="px-2 py-0.5 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 text-[10px] font-mono whitespace-nowrap inline-block">
-                                    Linux & Windows Ready
-                                </span>
+                {/* Connected VPS Active Session Banner - Streamlined & Compact on Mobile */}
+                {connectedServer && (
+                    <div className="p-3 sm:p-4 rounded-xl sm:rounded-2xl bg-gradient-to-r from-emerald-950/40 via-indigo-950/30 to-slate-900 border border-emerald-500/30 shadow-lg flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-4">
+                        <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+                            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center flex-shrink-0 text-emerald-400">
+                                <FolderGit2 className="w-4 h-4 sm:w-5 sm:h-5" />
                             </div>
-                            <p className="text-[11px] sm:text-xs text-slate-400 mt-1 leading-relaxed">
-                                Connect an existing server with login details, or start from scratch with guided cloud provisioning.
-                            </p>
+                            <div className="min-w-0 flex-1">
+                                <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-[11px] sm:text-xs font-mono font-semibold">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                                        <span className="truncate max-w-[170px] sm:max-w-none">{connectedServer.user}@{connectedServer.ip}:{connectedServer.port}</span>
+                                    </span>
+                                    <span className="text-[10px] sm:text-xs text-slate-400 font-mono">
+                                        {connectedServer.os}
+                                    </span>
+                                    <span className="text-[10px] sm:text-xs text-emerald-400 font-semibold font-mono">
+                                        • {serverFolders.length} dirs
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
+                            <button
+                                type="button"
+                                onClick={() => openServerExplorer('existing')}
+                                className="flex-1 sm:flex-initial px-3 py-1.5 rounded-lg sm:rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] sm:text-xs font-semibold shadow-md shadow-indigo-600/30 flex items-center justify-center gap-1.5 transition-all"
+                            >
+                                <FolderGit2 className="w-3.5 h-3.5 text-indigo-200" />
+                                <span>Server Projects ({serverFolders.length})</span>
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setSelectedOs(connectedServer.type || 'linux');
+                                    setSetupStep('credentials');
+                                    setSetupModalOpen(true);
+                                }}
+                                className="px-2.5 py-1.5 rounded-lg sm:rounded-xl bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white text-[11px] sm:text-xs font-medium transition-colors"
+                                title="Change credentials or configure connection"
+                            >
+                                Switch
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleDisconnectServer}
+                                className="p-1.5 sm:p-2 rounded-lg sm:rounded-xl bg-slate-900 border border-slate-800 hover:border-rose-900/50 text-slate-400 hover:text-rose-400 text-xs transition-colors"
+                                title="Disconnect server session"
+                            >
+                                <Power className="w-3.5 h-3.5" />
+                            </button>
                         </div>
                     </div>
-                    <button
-                        onClick={() => {
-                            setSelectedOs(null);
-                            setSetupModalOpen(true);
-                        }}
-                        className="w-full sm:w-auto justify-center px-4 py-2.5 sm:py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold whitespace-nowrap transition-colors flex items-center gap-1.5 flex-shrink-0"
-                    >
-                        <span>Configure Server</span>
-                        <ChevronRight className="w-3.5 h-3.5" />
-                    </button>
-                </div>
+                )}
 
-                <div className="space-y-8">
+                {/* Onboarding Intent Quick Card (Shown only when no active server is connected) */}
+                {!connectedServer && (
+                    <div className="p-3.5 sm:p-5 rounded-xl sm:rounded-2xl bg-gradient-to-r from-indigo-950/40 via-purple-950/20 to-slate-900 border border-indigo-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
+                        <div className="flex items-start sm:items-center gap-3 min-w-0">
+                            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center flex-shrink-0 mt-0.5 sm:mt-0 text-indigo-400">
+                                <Sparkles className="w-4 h-4 sm:w-5 sm:h-5" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <span className="text-xs sm:text-sm font-bold text-white">VPS Connection Assistant</span>
+                                    <span className="px-2 py-0.5 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 text-[10px] font-mono whitespace-nowrap inline-block">
+                                        Linux & Windows Ready
+                                    </span>
+                                </div>
+                                <p className="text-[11px] sm:text-xs text-slate-400 mt-0.5 sm:mt-1 leading-relaxed">
+                                    Connect an existing server with login details, or start from scratch with guided cloud provisioning.
+                                </p>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <button
+                                onClick={() => {
+                                    setSelectedOs(null);
+                                    setSetupStep('credentials');
+                                    setSetupModalOpen(true);
+                                }}
+                                className="w-full sm:w-auto justify-center px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold whitespace-nowrap transition-colors flex items-center gap-1.5 flex-shrink-0 shadow-md shadow-indigo-600/20"
+                            >
+                                <span>Configure Server</span>
+                                <ChevronRight className="w-3.5 h-3.5" />
+                            </button>
+                        </div>
+                    </div>
+                )}
+
+                <div className="space-y-4 sm:space-y-6">
                     {/* Live deployment toast banner */}
                     {deployStatus && (
-                        <div className="p-4 rounded-2xl bg-indigo-950/40 border border-indigo-500/30 flex items-center justify-between text-xs text-indigo-200 shadow-xl">
-                            <div className="flex items-center gap-3">
+                        <div className="p-3 sm:p-4 rounded-xl sm:rounded-2xl bg-indigo-950/40 border border-indigo-500/30 flex items-center justify-between text-xs text-indigo-200 shadow-xl">
+                            <div className="flex items-center gap-2.5">
                                 {isDeploying ? (
                                     <RefreshCw className="w-4 h-4 text-indigo-400 animate-spin" />
                                 ) : (
                                     <CheckCircle2 className="w-4 h-4 text-emerald-400" />
                                 )}
-                                <span className="font-mono">{deployStatus}</span>
+                                <span className="font-mono text-[11px] sm:text-xs">{deployStatus}</span>
                             </div>
                             {!isDeploying && (
                                 <button
                                     onClick={() => setDeployStatus(null)}
-                                    className="text-slate-400 hover:text-white"
+                                    className="text-slate-400 hover:text-white text-xs ml-2"
                                 >
                                     Dismiss
                                 </button>
@@ -657,89 +1032,89 @@ export default function Dashboard() {
                     )}
 
                     {/* Big Container for Projects / Ongoing Deployments */}
-                    <div className="bg-[#0E131F] border border-slate-800 rounded-2xl sm:rounded-3xl p-4 sm:p-6 lg:p-8 shadow-2xl relative">
-                        {/* Container Header Bar */}
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 sm:pb-6 border-b border-slate-800/80">
-                            <div>
-                                <div className="flex items-center gap-2.5">
-                                    <h3 className="text-lg sm:text-xl font-bold text-white flex items-center gap-2">
-                                        <Layers className="w-5 h-5 text-indigo-400" />
-                                        <span>Projects & Deployments</span>
-                                    </h3>
-                                    <span className="px-2.5 py-0.5 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-xs font-semibold">
-                                        {projects.length} {projects.length === 1 ? 'Project' : 'Projects'}
-                                    </span>
-                                </div>
-                                <p className="text-xs text-slate-400 mt-1 flex items-center gap-2">
-                                    <span>Active instances & previous work</span>                                
-                                </p>
+                    <div className="bg-[#0E131F] border border-slate-800 rounded-xl sm:rounded-3xl p-3 sm:p-6 lg:p-8 shadow-2xl relative">
+                        {/* Container Header Bar - Ultra-compact on mobile */}
+                        <div className="flex items-center justify-between gap-2 pb-3 sm:pb-5 border-b border-slate-800/80">
+                            <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
+                                <Layers className="w-4 h-4 sm:w-5 sm:h-5 text-indigo-400 flex-shrink-0" />
+                                <h3 className="text-sm sm:text-xl font-bold text-white truncate">
+                                    Projects & Deployments
+                                </h3>
+                                <span className="px-2 py-0.5 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-[10px] sm:text-xs font-semibold flex-shrink-0">
+                                    {projects.length}
+                                </span>
                             </div>
 
-                            <div className="flex items-center gap-2 flex-wrap">
-                                {projects.length > 0 ? (
-                                    <>
-                                        <button
-                                            onClick={() => setProjects([])}
-                                            className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-400 hover:text-slate-200 text-xs font-medium transition-colors"
-                                            title="Simulate / View empty state"
-                                        >
-                                            View Empty State
-                                        </button>
-                                        <button
-                                            onClick={() => {
-                                                setSelectedOs(null);
-                                                setSetupStep(connectedServer.status === 'Connected & Verified' ? 'explorer' : 'credentials');
-                                                setSetupModalOpen(true);
-                                            }}
-                                            className="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition-all shadow-md shadow-indigo-600/20 flex items-center gap-1.5"
-                                        >
-                                            <Plus className="w-3.5 h-3.5" />
-                                            <span>New Project</span>
-                                        </button>
-                                    </>
-                                ) : (
+                            <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
+                                {projects.length > 0 && (
                                     <button
-                                        onClick={restoreSampleProjects}
-                                        className="px-3.5 py-1.5 rounded-xl bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-300 text-xs font-medium transition-colors flex items-center gap-1.5"
+                                        type="button"
+                                        onClick={() => handleVerifyAllProjectsAuth(false)}
+                                        disabled={isCheckingAllAuth}
+                                        className="px-2.5 sm:px-3.5 py-1.5 rounded-lg sm:rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white text-[11px] sm:text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm disabled:opacity-60"
+                                        title="Probe and monitor real SSH server authentications for all projects"
                                     >
-                                        <RotateCcw className="w-3.5 h-3.5 text-cyan-400" />
-                                        <span>Restore Sample Projects</span>
+                                        <RefreshCw className={`w-3.5 h-3.5 text-emerald-400 ${isCheckingAllAuth ? 'animate-spin' : ''}`} />
+                                        <span className="hidden sm:inline">{isCheckingAllAuth ? 'Probing Servers...' : 'Monitor Server Auths'}</span>
                                     </button>
                                 )}
+                                <button
+                                    onClick={() => {
+                                        if (connectedServer) {
+                                            openServerExplorer('new');
+                                        } else {
+                                            setSelectedOs(null);
+                                            setSetupStep('credentials');
+                                            setSetupModalOpen(true);
+                                        }
+                                    }}
+                                    className="px-2.5 sm:px-3.5 py-1.5 rounded-lg sm:rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] sm:text-xs font-semibold transition-all shadow-md shadow-indigo-600/20 flex items-center gap-1.5"
+                                >
+                                    <Plus className="w-3.5 h-3.5" />
+                                    <span>New Project</span>
+                                </button>
                             </div>
                         </div>
 
                         {/* Big Container Body */}
                         <div className="mt-5 sm:mt-6">
                             {projects.length === 0 ? (
-                                /* Empty State: You have no project run for */
+                                /* Empty State */
                                 <div className="py-14 sm:py-20 px-4 sm:px-6 text-center flex flex-col items-center justify-center rounded-2xl border border-dashed border-slate-800/80 bg-[#080B12]/60">
                                     <div className="w-16 h-16 rounded-3xl bg-indigo-950/40 border border-indigo-500/20 flex items-center justify-center mb-5 text-indigo-400 shadow-xl shadow-indigo-950/50">
                                         <FolderGit2 className="w-8 h-8" />
                                     </div>
                                     <h3 className="text-xl sm:text-2xl font-extrabold text-white mb-2">
-                                        You have no project run for
+                                        No Projects Linked Yet
                                     </h3>
                                     <p className="text-xs sm:text-sm text-slate-400 max-w-md mx-auto mb-6 leading-relaxed">
-                                        There are currently no ongoing deployments or active server projects running. Use the VPS Connection Assistant above to connect an instance and deploy your first application.
+                                        There are currently no active projects linked to your dashboard. Connect to your VPS instance to browse detected directories or deploy a new application.
                                     </p>
                                     <div className="flex flex-wrap items-center justify-center gap-3 w-full sm:w-auto">
+                                        {connectedServer && (
+                                            <button
+                                                type="button"
+                                                onClick={() => openServerExplorer('existing')}
+                                                className="w-full sm:w-auto justify-center px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs transition-all shadow-lg shadow-emerald-600/25 flex items-center gap-2"
+                                            >
+                                                <FolderGit2 className="w-4 h-4" />
+                                                <span>Server Projects & Directories ({serverFolders.length})</span>
+                                            </button>
+                                        )}
                                         <button
                                             onClick={() => {
-                                                setSelectedOs(null);
-                                                setSetupModalOpen(true);
+                                                if (connectedServer) {
+                                                    openServerExplorer('new');
+                                                } else {
+                                                    setSelectedOs(null);
+                                                    setSetupStep('credentials');
+                                                    setSetupModalOpen(true);
+                                                }
                                             }}
                                             className="w-full sm:w-auto justify-center px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs transition-all shadow-lg shadow-indigo-600/25 flex items-center gap-2"
                                         >
                                             <Plus className="w-4 h-4" />
                                             <span>Deploy First Project</span>
-                                        </button>
-                                        <button
-                                            onClick={restoreSampleProjects}
-                                            className="w-full sm:w-auto justify-center px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-300 font-medium text-xs transition-colors flex items-center gap-2"
-                                        >
-                                            <RotateCcw className="w-3.5 h-3.5 text-cyan-400" />
-                                            <span>Load Sample Projects</span>
                                         </button>
                                     </div>
                                 </div>
@@ -749,9 +1124,9 @@ export default function Dashboard() {
                                     {projects.map((project) => (
                                         <div
                                             key={project.id}
-                                            className="bg-[#080B12] border border-slate-800/90 hover:border-slate-700/80 rounded-2xl p-4 sm:p-5 lg:p-6 transition-all shadow-xl flex flex-col justify-between relative group"
+                                            className="bg-[#080B12] border border-slate-800/90 hover:border-slate-700/80 rounded-xl sm:rounded-2xl p-3.5 sm:p-5 lg:p-6 transition-all shadow-xl flex flex-col justify-between relative group"
                                         >
-                                            {/* Top section: Project info & Switch Button */}
+                                            {/* Top section: Project info & Real Server Auth Monitor */}
                                             <div>
                                                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3.5 border-b border-slate-800/70">
                                                     <div className="flex items-center gap-3 min-w-0">
@@ -778,6 +1153,11 @@ export default function Dashboard() {
                                                                 }`}>
                                                                     {project.type}
                                                                 </span>
+                                                                {project.framework && (
+                                                                    <span className="px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">
+                                                                        {project.framework}
+                                                                    </span>
+                                                                )}
                                                             </div>
                                                             <div className="mt-1 flex items-center gap-2 flex-wrap">
                                                                 {project.isDeploying ? (
@@ -785,53 +1165,92 @@ export default function Dashboard() {
                                                                         <RefreshCw className="w-3 h-3 animate-spin text-indigo-400" />
                                                                         Ongoing Deploy...
                                                                     </span>
-                                                                ) : project.isConnected ? (
+                                                                ) : project.isCheckingAuth ? (
+                                                                    <span className="px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[10px] sm:text-[11px] font-medium flex items-center gap-1.5 animate-pulse">
+                                                                        <RefreshCw className="w-3 h-3 animate-spin text-amber-400" />
+                                                                        Verifying SSH Auth...
+                                                                    </span>
+                                                                ) : (project.auth_status === 'authenticated' || project.isConnected) ? (
                                                                     <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[10px] sm:text-[11px] font-medium flex items-center gap-1.5">
                                                                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
-                                                                        Online & Synced
+                                                                        Live & Authenticated {project.latency_ms ? `(${project.latency_ms}ms)` : ''}
+                                                                    </span>
+                                                                ) : project.auth_status === 'auth_failed' ? (
+                                                                    <span className="px-2 py-0.5 rounded-full bg-rose-500/10 border border-rose-500/30 text-rose-400 text-[10px] sm:text-[11px] font-medium flex items-center gap-1.5" title={project.last_auth_message || 'SSH Authentication Rejected'}>
+                                                                        <AlertCircle className="w-3 h-3 text-rose-400" />
+                                                                        Auth Failed
                                                                     </span>
                                                                 ) : (
                                                                     <span className="px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-slate-400 text-[10px] sm:text-[11px] font-medium flex items-center gap-1.5">
                                                                         <span className="w-1.5 h-1.5 rounded-full bg-slate-500" />
-                                                                        Disconnected (Logged out)
+                                                                        Unverified
                                                                     </span>
                                                                 )}
                                                             </div>
                                                         </div>
                                                     </div>
 
-                                                    {/* Switch Button for Connect Server / Disconnect Server (Logout Server) */}
-                                                    <div className="flex items-center justify-between sm:justify-end gap-2.5 bg-slate-900/90 border border-slate-800 px-3 py-2 sm:py-1.5 rounded-xl w-full sm:w-auto flex-shrink-0">
+                                                    {/* Real Server Authentication Monitor Control */}
+                                                    <div className="flex items-center justify-between sm:justify-end gap-2.5 bg-slate-900/90 border border-slate-800 px-3 py-1.5 rounded-xl w-full sm:w-auto flex-shrink-0">
                                                         <div className="flex flex-col text-left sm:text-right">
-                                                            <span className={`text-[11px] font-bold ${project.isConnected ? 'text-emerald-400' : 'text-slate-400'}`}>
-                                                                {project.isConnected ? 'Server Connected' : 'Server Disconnected'}
+                                                            <span className={`text-[11px] font-bold ${
+                                                                project.isCheckingAuth
+                                                                    ? 'text-amber-400'
+                                                                    : (project.auth_status === 'authenticated' || project.isConnected)
+                                                                    ? 'text-emerald-400'
+                                                                    : project.auth_status === 'auth_failed'
+                                                                    ? 'text-rose-400'
+                                                                    : 'text-slate-400'
+                                                            }`}>
+                                                                {project.isCheckingAuth 
+                                                                    ? 'Probing SSH...' 
+                                                                    : (project.auth_status === 'authenticated' || project.isConnected) 
+                                                                    ? 'SSH Authenticated' 
+                                                                    : project.auth_status === 'auth_failed'
+                                                                    ? 'Auth Rejected'
+                                                                    : 'Server Unverified'}
                                                             </span>
-                                                            <span className="text-[9px] text-slate-400">
-                                                                {project.isConnected ? 'Click to logout / disconnect' : 'Click to connect server'}
+                                                            <span className="text-[9px] text-slate-400 max-w-[130px] sm:max-w-[170px] truncate" title={project.last_auth_message || ''}>
+                                                                {project.latency_ms ? `Live latency: ${project.latency_ms}ms` : project.last_auth_message ? project.last_auth_message : 'Click to test real credentials'}
                                                             </span>
                                                         </div>
                                                         <button
                                                             type="button"
-                                                            role="switch"
-                                                            aria-checked={project.isConnected}
-                                                            onClick={() => toggleServerConnection(project.id)}
-                                                            title={project.isConnected ? 'Disconnect Server (Logout Server)' : 'Connect Server'}
-                                                            className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                                                                project.isConnected
-                                                                    ? 'bg-emerald-500 shadow-sm shadow-emerald-500/50'
-                                                                    : 'bg-slate-700'
+                                                            disabled={project.isCheckingAuth}
+                                                            onClick={() => handleVerifyProjectAuth(project.id)}
+                                                            title="Probe real remote SSH server authentication"
+                                                            className={`px-3 py-1.5 rounded-lg border text-xs font-medium transition-all flex items-center gap-1.5 ${
+                                                                project.isCheckingAuth
+                                                                    ? 'bg-amber-950/40 border-amber-500/30 text-amber-300 cursor-wait'
+                                                                    : (project.auth_status === 'authenticated' || project.isConnected)
+                                                                    ? 'bg-emerald-950/30 border-emerald-500/30 text-emerald-300 hover:bg-emerald-900/30'
+                                                                    : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-300'
                                                             }`}
                                                         >
-                                                            <span className="sr-only">Toggle server connection</span>
-                                                            <span
-                                                                aria-hidden="true"
-                                                                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                                                                    project.isConnected ? 'translate-x-5' : 'translate-x-0'
-                                                                }`}
-                                                            />
+                                                            <RefreshCw className={`w-3.5 h-3.5 ${project.isCheckingAuth ? 'animate-spin text-amber-400' : 'text-slate-400'}`} />
+                                                            <span>{project.isCheckingAuth ? 'Testing...' : 'Verify Auth'}</span>
                                                         </button>
                                                     </div>
                                                 </div>
+
+                                                {/* Notice banner if server authentication failed */}
+                                                {project.auth_status === 'auth_failed' && (
+                                                    <div className="mt-3 p-2.5 rounded-xl bg-rose-950/40 border border-rose-500/30 text-xs text-rose-300 flex items-center justify-between gap-2">
+                                                        <div className="flex items-center gap-2 truncate">
+                                                            <AlertCircle className="w-4 h-4 text-rose-400 flex-shrink-0" />
+                                                            <span className="truncate text-[11px]">{project.last_auth_message || 'SSH authentication rejected by remote server. Check credentials.'}</span>
+                                                        </div>
+                                                        <button
+                                                            onClick={() => {
+                                                                setSelectedOs(project.type);
+                                                                setSetupModalOpen(true);
+                                                            }}
+                                                            className="px-2 py-0.5 rounded bg-rose-500/20 hover:bg-rose-500/30 text-rose-200 text-[10px] font-semibold flex-shrink-0"
+                                                        >
+                                                            Update
+                                                        </button>
+                                                    </div>
+                                                )}
 
                                                 {/* Ongoing deploy alert banner if deploying */}
                                                 {project.isDeploying && (
@@ -868,14 +1287,22 @@ export default function Dashboard() {
                                                     </div>
 
                                                     {/* Commit & commit message */}
-                                                    <div className="space-y-1">
+                                                    <div className="space-y-1.5">
                                                         <div className="flex items-center gap-2 text-[11px] flex-wrap">
                                                             <GitBranch className="w-3.5 h-3.5 text-indigo-400 flex-shrink-0" />
                                                             <span className="font-mono text-indigo-300 font-semibold bg-indigo-500/10 px-1.5 py-0.5 rounded border border-indigo-500/20 text-[10px]">
-                                                                commit: {project.commit || '47317d1'}
+                                                                commit: {project.commit || 'live'}
                                                             </span>
                                                             <span className="text-slate-400 text-[10px] font-mono">({project.branch || 'main'})</span>
                                                         </div>
+                                                        {(project.commit_message || project.commitMessage) && (
+                                                            <div className="flex items-start gap-1.5 pl-1 pt-0.5">
+                                                                <span className="text-[10px] text-slate-500 font-mono flex-shrink-0 select-none">↳</span>
+                                                                <p className="text-[11px] text-slate-300 font-mono line-clamp-2 italic" title={project.commit_message || project.commitMessage}>
+                                                                    "{project.commit_message || project.commitMessage}"
+                                                                </p>
+                                                            </div>
+                                                        )}
                                                     </div>
 
                                                     {/* Server Host & Domain details */}
@@ -884,9 +1311,52 @@ export default function Dashboard() {
                                                             <span className="text-slate-400 uppercase text-[10px]">Host: </span>
                                                             <span className="text-slate-200 font-medium">{project.ip}:{project.port} ({project.user})</span>
                                                         </div>
-                                                        <div className="truncate">
-                                                            <span className="text-slate-400 uppercase text-[10px]">Domain: </span>
-                                                            <span className="text-cyan-400 font-semibold">{project.domain}</span>
+                                                        <div className="flex items-center gap-1.5 min-w-0">
+                                                            <span className="text-slate-400 uppercase text-[10px] flex-shrink-0">Domain: </span>
+                                                            {editingDomainProjectId === project.id ? (
+                                                                <div className="flex items-center gap-1 flex-wrap">
+                                                                    <input
+                                                                        type="text"
+                                                                        value={editingDomainValue}
+                                                                        onChange={(e) => setEditingDomainValue(e.target.value)}
+                                                                        placeholder="e.g. app.rhamify.com"
+                                                                        className="h-6 px-2 py-0.5 text-[11px] bg-slate-950 border border-indigo-500 rounded text-cyan-300 font-mono w-40 sm:w-48 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                                                                        autoFocus
+                                                                        onKeyDown={(e) => {
+                                                                            if (e.key === 'Enter') handleSaveDomain(project.id);
+                                                                            if (e.key === 'Escape') setEditingDomainProjectId(null);
+                                                                        }}
+                                                                    />
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => handleSaveDomain(project.id)}
+                                                                        className="px-2 py-0.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-semibold transition-colors"
+                                                                    >
+                                                                        Save
+                                                                    </button>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => setEditingDomainProjectId(null)}
+                                                                        className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 text-[10px] transition-colors"
+                                                                    >
+                                                                        Cancel
+                                                                    </button>
+                                                                </div>
+                                                            ) : (
+                                                                <div className="flex items-center gap-1.5 truncate group/dom">
+                                                                    <span className="text-cyan-400 font-semibold truncate max-w-[180px] sm:max-w-[220px]" title={project.domain || project.ip}>
+                                                                        {project.domain || project.ip}
+                                                                    </span>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => startEditingDomain(project)}
+                                                                        className="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-800/80 transition-colors"
+                                                                        title="Edit live domain or URL"
+                                                                    >
+                                                                        <Pencil className="w-3 h-3 text-slate-400 hover:text-cyan-400" />
+                                                                    </button>
+                                                                </div>
+                                                            )}
                                                         </div>
                                                     </div>
                                                 </div>
@@ -895,7 +1365,7 @@ export default function Dashboard() {
                                                 <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400">
                                                     <span className="flex items-center gap-1.5">
                                                         <Clock className="w-3.5 h-3.5 text-indigo-400 flex-shrink-0" />
-                                                        <span>Last visited: <strong className="text-slate-200">{project.lastVisited}</strong></span>
+                                                        <span>Last visited: <strong className="text-slate-200">{formatLastVisited(project)}</strong></span>
                                                     </span>
                                                     <span className="text-[10px] text-slate-400 font-mono truncate max-w-[200px]">OS: {project.os}</span>
                                                 </div>
@@ -922,7 +1392,9 @@ export default function Dashboard() {
                                                         )}
                                                     </button>
                                                     <a
-                                                        href={`http://${project.domain}`}
+                                                        href={project.domain?.startsWith('http://') || project.domain?.startsWith('https://')
+                                                            ? project.domain
+                                                            : `http://${project.domain || project.ip}`}
                                                         target="_blank"
                                                         rel="noreferrer"
                                                         className="flex-1 sm:flex-initial justify-center px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-300 text-xs font-medium transition-colors flex items-center gap-1.5"
@@ -1002,12 +1474,17 @@ export default function Dashboard() {
                                                 {connectedServer?.os}
                                             </span>
                                         </div>
+                                        <p className="text-[11px] text-slate-400 mt-2">
+                                            Tip: You can close this view anytime. A quick-access button is always present on your dashboard to return here.
+                                        </p>
                                     </div>
                                     <button
                                         onClick={() => setSetupModalOpen(false)}
-                                        className="self-start sm:self-center p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-white transition-colors"
+                                        className="self-start sm:self-center px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-white transition-colors flex items-center gap-1.5 text-xs font-medium"
+                                        title="Close explorer (you can return anytime from the dashboard)"
                                     >
-                                        <X className="w-5 h-5" />
+                                        <span>Close</span>
+                                        <X className="w-4 h-4" />
                                     </button>
                                 </div>
 
@@ -1310,6 +1787,19 @@ export default function Dashboard() {
                                         <p className="text-xs text-slate-400 mt-1">
                                             Choose your server OS. Connect using default login credentials or a dedicated deployer sub-account.
                                         </p>
+                                        {connectedServer && (
+                                            <div className="mt-3">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => openServerExplorer('existing')}
+                                                    className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/40 text-indigo-300 hover:text-white text-xs font-semibold transition-all shadow-sm"
+                                                >
+                                                    <FolderGit2 className="w-3.5 h-3.5 text-indigo-400" />
+                                                    <span>Return to Server Projects & Directories ({serverFolders.length})</span>
+                                                    <ChevronRight className="w-3 h-3" />
+                                                </button>
+                                            </div>
+                                        )}
                                     </div>
                                     <button
                                         onClick={() => setSetupModalOpen(false)}
@@ -1456,7 +1946,7 @@ export default function Dashboard() {
                                             type="text"
                                             value={linuxIp}
                                             onChange={(e) => setLinuxIp(e.target.value)}
-                                            placeholder="147.93.85.120"
+                                            placeholder="e.g. 192.168.1.100 or server IP"
                                             className="w-full px-3.5 py-2.5 bg-[#0E131F] border border-slate-800 rounded-xl text-white font-mono text-xs focus:ring-1 focus:ring-indigo-500"
                                         />
                                     </div>
@@ -1500,7 +1990,7 @@ export default function Dashboard() {
                                             <button
                                                 type="button"
                                                 onClick={() => {
-                                                    setLinuxUser('rhamifytechnology');
+                                                    setLinuxUser(user.github_username || 'deployer');
                                                     setShowRootPrompt(false);
                                                     setShowNewAccountForm(false);
                                                 }}
@@ -1881,33 +2371,35 @@ export default function Dashboard() {
                                                     onSubmit={handlePassphraseSubmit}
                                                     className="p-3 bg-indigo-950/40 border border-indigo-500/40 rounded-xl space-y-2 animate-in fade-in duration-200"
                                                 >
-                                                    <div className="flex items-center gap-2 text-xs font-bold text-indigo-300">
-                                                        <Key className="w-4 h-4 text-indigo-400 flex-shrink-0" />
-                                                        <span>Enter passphrase for key '{passphraseKeyName}':</span>
+                                                    <div className="flex items-start sm:items-center gap-2 text-xs font-bold text-indigo-300">
+                                                        <Key className="w-4 h-4 text-indigo-400 flex-shrink-0 mt-0.5 sm:mt-0" />
+                                                        <span className="break-words">Enter passphrase for key '{passphraseKeyName}':</span>
                                                     </div>
-                                                    <p className="text-[11px] text-slate-400">
+                                                    <p className="text-[11px] text-slate-400 leading-relaxed">
                                                         Your private key is protected with a passphrase. Type your passphrase below to unlock and proceed.
                                                     </p>
-                                                    <div className="flex gap-2">
-                                                        <input
-                                                            type="password"
-                                                            autoFocus
-                                                            value={keyPassphrase}
-                                                            onChange={(e) => setKeyPassphrase(e.target.value)}
-                                                            placeholder="Enter key passphrase"
-                                                            className="flex-1 px-3.5 py-2 bg-[#0E131F] border border-indigo-500/40 rounded-lg text-white font-mono text-xs focus:ring-1 focus:ring-indigo-500"
-                                                        />
+                                                    <div className="flex items-center gap-2 w-full">
+                                                        <div className="flex-1 min-w-0">
+                                                            <input
+                                                                type="password"
+                                                                autoFocus
+                                                                value={keyPassphrase}
+                                                                onChange={(e) => setKeyPassphrase(e.target.value)}
+                                                                placeholder="Enter key passphrase"
+                                                                className="w-full min-w-0 px-3 py-2 bg-[#0E131F] border border-indigo-500/40 rounded-lg text-white font-mono text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 placeholder:text-slate-500"
+                                                            />
+                                                        </div>
                                                         <button
                                                             type="submit"
                                                             disabled={isTestingConnection}
-                                                            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors shadow-md shadow-indigo-600/30"
+                                                            className="flex-shrink-0 whitespace-nowrap px-3.5 sm:px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors shadow-md shadow-indigo-600/30"
                                                         >
                                                             {isTestingConnection ? (
                                                                 <RefreshCw className="w-3.5 h-3.5 animate-spin" />
                                                             ) : (
                                                                 <CheckCircle2 className="w-3.5 h-3.5" />
                                                             )}
-                                                            <span>Unlock & Connect</span>
+                                                            <span>Connect</span>
                                                         </button>
                                                     </div>
                                                 </form>
@@ -1960,7 +2452,7 @@ export default function Dashboard() {
                                             type="text"
                                             value={windowsIp}
                                             onChange={(e) => setWindowsIp(e.target.value)}
-                                            placeholder="147.93.85.130"
+                                            placeholder="e.g. 192.168.1.100 or server IP"
                                             className="w-full px-3.5 py-2.5 bg-[#0E131F] border border-slate-800 rounded-xl text-white font-mono text-xs focus:ring-1 focus:ring-cyan-500"
                                         />
                                     </div>
@@ -2343,6 +2835,8 @@ export default function Dashboard() {
                     </div>
                 </div>
             )}
+
+
         </AuthenticatedLayout>
     );
 }

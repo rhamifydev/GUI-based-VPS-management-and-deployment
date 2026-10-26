@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, usePage } from '@inertiajs/react';
 import {
     Server,
@@ -22,14 +22,34 @@ import {
 export default function AuthenticatedLayout({ children }) {
     const user = usePage().props.auth.user;
     const [mobileOpen, setMobileOpen] = useState(false);
+    const [connectedServer, setConnectedServer] = useState(() => {
+        try {
+            const saved = localStorage.getItem('vps_connected_server');
+            return saved ? JSON.parse(saved) : null;
+        } catch (e) {
+            return null;
+        }
+    });
+
+    useEffect(() => {
+        const handleStorage = () => {
+            try {
+                const saved = localStorage.getItem('vps_connected_server');
+                setConnectedServer(saved ? JSON.parse(saved) : null);
+            } catch (e) {}
+        };
+        window.addEventListener('storage', handleStorage);
+        // Also poll briefly or listen to custom event if within same window
+        const interval = setInterval(handleStorage, 2000);
+        return () => {
+            window.removeEventListener('storage', handleStorage);
+            clearInterval(interval);
+        };
+    }, []);
 
     const navItems = [
         { label: 'VPS Dashboard', href: route('dashboard'), icon: Server, active: true },
-        { label: '10-Step Workflow', href: '/#pipeline', icon: Sliders, active: false },
-        { label: 'File Manager', href: '#', icon: FolderTree, active: false, badge: 'Soon' },
-        { label: 'Command Terminal', href: '#', icon: Terminal, active: false, badge: 'Soon' },
-        { label: 'Daemons & Workers', href: '#', icon: Radio, active: false },
-        { label: 'Security & SSL', href: '#', icon: Shield, active: false },
+        { label: 'Workflow Guide', href: '/#pipeline', icon: Sliders, active: false },
     ];
 
     const sidebarContent = (
@@ -57,29 +77,49 @@ export default function AuthenticatedLayout({ children }) {
                 </button>
             </div>
 
-            {/* Target Server Node Telemetry Pill */}
+            {/* Target Server Node Telemetry Pill (Dynamic Real Data) */}
             <div className="p-4 border-b border-slate-800/80">
                 <div className="p-3 rounded-xl bg-[#080B12] border border-slate-800/80">
                     <div className="flex items-center justify-between text-[11px] text-slate-400">
                         <span className="font-semibold text-slate-300">Target Node</span>
-                        <span className="flex items-center gap-1 text-emerald-400 font-mono text-[10px]">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
-                            Live
-                        </span>
+                        {connectedServer ? (
+                            <span className="flex items-center gap-1 text-emerald-400 font-mono text-[10px]">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+                                Live
+                            </span>
+                        ) : (
+                            <span className="flex items-center gap-1 text-slate-500 font-mono text-[10px]">
+                                <span className="w-1.5 h-1.5 rounded-full bg-slate-500" />
+                                Offline
+                            </span>
+                        )}
                     </div>
-                    <div className="font-mono text-xs font-bold text-white mt-1">
-                        147.93.85.120
-                    </div>
-                    <div className="text-[10px] text-slate-400 mt-0.5">
-                        Ubuntu 24.04 LTS (SSH 22)
-                    </div>
+                    {connectedServer ? (
+                        <>
+                            <div className="font-mono text-xs font-bold text-white mt-1 truncate">
+                                {connectedServer.ip}:{connectedServer.port}
+                            </div>
+                            <div className="text-[10px] text-slate-400 mt-0.5 truncate">
+                                {connectedServer.user} • {connectedServer.os || 'Connected'}
+                            </div>
+                        </>
+                    ) : (
+                        <>
+                            <div className="font-mono text-xs font-medium text-slate-400 mt-1">
+                                No Node Connected
+                            </div>
+                            <div className="text-[10px] text-slate-500 mt-0.5">
+                                Connect server to manage
+                            </div>
+                        </>
+                    )}
                 </div>
             </div>
 
             {/* Navigation links */}
             <nav className="flex-1 px-4 py-4 space-y-1.5 overflow-y-auto scrollbar-thin scrollbar-thumb-slate-800">
                 <div className="px-3 pb-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                    Management
+                    Navigation
                 </div>
 
                 {navItems.map((item, idx) => {
@@ -99,31 +139,9 @@ export default function AuthenticatedLayout({ children }) {
                                 <Icon className={`w-4 h-4 ${item.active ? 'text-indigo-400' : 'text-slate-400'}`} />
                                 <span>{item.label}</span>
                             </div>
-                            {item.badge && (
-                                <span className="px-1.5 py-0.5 rounded bg-slate-800 text-[10px] text-slate-400 font-mono">
-                                    {item.badge}
-                                </span>
-                            )}
                         </Link>
                     );
                 })}
-
-                <div className="pt-4 px-3 pb-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                    External
-                </div>
-
-                <a
-                    href="http://new.rhamify.com"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-medium text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors"
-                >
-                    <div className="flex items-center gap-3">
-                        <Globe className="w-4 h-4 text-cyan-400" />
-                        <span>Live Site</span>
-                    </div>
-                    <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
-                </a>
 
                 <Link
                     href="/"
