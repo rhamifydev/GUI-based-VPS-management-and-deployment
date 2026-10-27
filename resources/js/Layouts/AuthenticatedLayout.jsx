@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Link, usePage } from '@inertiajs/react';
+import { Link, usePage, router } from '@inertiajs/react';
 import {
     Server,
     Activity,
@@ -16,12 +16,14 @@ import {
     GitBranch,
     Sliders,
     Globe,
-    Home
+    Home,
+    Loader2
 } from 'lucide-react';
 
 export default function AuthenticatedLayout({ children }) {
     const user = usePage().props.auth.user;
     const [mobileOpen, setMobileOpen] = useState(false);
+    const [isPageLoading, setIsPageLoading] = useState(false);
     const [connectedServer, setConnectedServer] = useState(() => {
         try {
             const saved = localStorage.getItem('vps_connected_server');
@@ -30,6 +32,20 @@ export default function AuthenticatedLayout({ children }) {
             return null;
         }
     });
+
+    useEffect(() => {
+        const unregisterStart = router.on('start', () => setIsPageLoading(true));
+        const unregisterFinish = router.on('finish', () => setIsPageLoading(false));
+        const unregisterCancel = router.on('cancel', () => setIsPageLoading(false));
+        const unregisterError = router.on('error', () => setIsPageLoading(false));
+
+        return () => {
+            unregisterStart();
+            unregisterFinish();
+            unregisterCancel();
+            unregisterError();
+        };
+    }, []);
 
     useEffect(() => {
         const handleStorage = () => {
@@ -48,7 +64,9 @@ export default function AuthenticatedLayout({ children }) {
     }, []);
 
     const navItems = [
-        { label: 'VPS Dashboard', href: route('dashboard'), icon: Server, active: true },
+        { label: 'VPS Dashboard', href: route('dashboard'), icon: Layers, active: route().current('dashboard') },
+        { label: 'Servers & VPS', href: route('servers.index'), icon: Server, active: route().current('servers.index') },
+        { label: 'Server Metrics', href: route('servers.metrics'), icon: Activity, active: route().current('servers.metrics') },
         { label: 'Workflow Guide', href: '/#pipeline', icon: Sliders, active: false },
     ];
 
@@ -188,6 +206,22 @@ export default function AuthenticatedLayout({ children }) {
 
     return (
         <div className="min-h-screen bg-[#0A0D14] text-slate-100 font-sans selection:bg-indigo-500 selection:text-white">
+            {/* Simple Top Navigation Loader Bar */}
+            {isPageLoading && (
+                <div className="fixed top-0 left-0 right-0 z-[100] pointer-events-none">
+                    <div className="h-1 w-full bg-slate-900/60 overflow-hidden">
+                        <div className="h-full bg-gradient-to-r from-indigo-500 via-cyan-400 to-indigo-600 animate-page-loader shadow-[0_0_12px_rgba(99,102,241,0.8)]" />
+                    </div>
+                    {/* Floating Subtle Top-Right Indicator */}
+                    <div className="absolute top-2.5 right-4 pointer-events-auto">
+                        <div className="bg-[#0E131F]/95 backdrop-blur-md border border-indigo-500/30 px-3 py-1 rounded-full flex items-center gap-2 shadow-xl shadow-indigo-950/50 text-[11px] font-medium text-slate-200">
+                            <Loader2 className="w-3.5 h-3.5 text-indigo-400 animate-spin" />
+                            <span>Loading...</span>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* Desktop Fixed Left Sidebar */}
             <aside className="hidden md:flex fixed top-0 bottom-0 left-0 w-64 z-30">
                 {sidebarContent}

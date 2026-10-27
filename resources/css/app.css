@@ -12,3 +12,23 @@
     letter-spacing: -0.02em;
   }
 }
+
+@keyframes pageLoader {
+  0% {
+    transform: translateX(-100%);
+    width: 25%;
+  }
+  50% {
+    transform: translateX(45%);
+    width: 60%;
+  }
+  100% {
+    transform: translateX(200%);
+    width: 30%;
+  }
+}
+
+.animate-page-loader {
+  animation: pageLoader 1.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+

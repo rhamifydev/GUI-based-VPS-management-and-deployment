@@ -230,13 +230,15 @@ export default function Dashboard({ initialProjects = [], initialServers = [] })
         return servers.find(s => s.id === project.server_id || s.ip === project.ip);
     };
 
-    const handleToggleServerPower = async (server) => {
-        if (!server || !server.id) return;
-        setPowerTogglingServerId(server.id);
-        const actionWord = server.is_active ? 'turn OFF' : 'turn ON';
+    const handleToggleServerPower = async (serverOrId) => {
+        const sId = typeof serverOrId === 'object' && serverOrId !== null ? serverOrId.id : serverOrId;
+        if (!sId) return;
+        setPowerTogglingServerId(sId);
+        const serverObj = typeof serverOrId === 'object' && serverOrId !== null ? serverOrId : servers.find(s => s.id === sId);
+        const actionWord = serverObj?.is_active ? 'turn OFF' : 'turn ON';
         try {
             const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
-            const res = await fetch(`/vps/servers/${server.id}/toggle-power`, {
+            const res = await fetch(`/vps/servers/${sId}/toggle-power`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -247,9 +249,9 @@ export default function Dashboard({ initialProjects = [], initialServers = [] })
             });
             const data = await res.json();
             if (data.success) {
-                setServers(prev => prev.map(s => s.id === server.id ? data.server : s));
+                setServers(prev => prev.map(s => s.id === sId ? data.server : s));
 
-                if (connectedServer && (connectedServer.id === server.id || connectedServer.ip === server.ip)) {
+                if (connectedServer && (connectedServer.id === sId || connectedServer.ip === data.server?.ip)) {
                     setConnectedServer(prev => ({
                         ...prev,
                         is_active: data.is_active,
@@ -1165,207 +1167,7 @@ export default function Dashboard({ initialProjects = [], initialServers = [] })
                     </div>
                 )}
 
-                {/* ========================================================================= */}
-                {/* MANAGED VPS SERVERS SECTION - Multi-Server Support & Power Controls */}
-                {/* ========================================================================= */}
-                {servers.length > 0 && (
-                    <div className="bg-[#0E131F] border border-slate-800 rounded-xl sm:rounded-3xl p-3.5 sm:p-6 shadow-2xl relative">
-                        {/* Section Header */}
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3.5 sm:pb-4 border-b border-slate-800/80">
-                            <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
-                                <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-gradient-to-br from-indigo-500/20 to-purple-500/10 border border-indigo-500/30 flex items-center justify-center flex-shrink-0 text-indigo-400">
-                                    <Server className="w-4 h-4 sm:w-5 sm:h-5 text-indigo-400" />
-                                </div>
-                                <div className="min-w-0 flex-1">
-                                    <div className="flex items-center gap-2 flex-wrap">
-                                        <h3 className="text-sm sm:text-lg font-bold text-white truncate">
-                                            Connected VPS Instances
-                                        </h3>
-                                        <span className="px-2 py-0.5 rounded-full bg-indigo-500/15 border border-indigo-500/30 text-indigo-300 text-[10px] sm:text-xs font-semibold font-mono">
-                                            {servers.length} {servers.length === 1 ? 'server' : 'servers'}
-                                        </span>
-                                        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-semibold">
-                                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                                            Multi-Server Platform
-                                        </span>
-                                    </div>
-                                    <p className="text-[11px] text-slate-400 mt-0.5 truncate hidden sm:block">
-                                        Monitor server health, deliberate power controls, and isolated workloads across all linked hosts.
-                                    </p>
-                                </div>
-                            </div>
 
-                            <div className="flex items-center gap-2 flex-shrink-0">
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        setSelectedOs(null);
-                                        setSetupStep('credentials');
-                                        setSetupModalOpen(true);
-                                    }}
-                                    className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition-all shadow-md shadow-indigo-600/25 flex items-center gap-1.5"
-                                >
-                                    <Plus className="w-3.5 h-3.5" />
-                                    <span>Add Another Server</span>
-                                </button>
-                            </div>
-                        </div>
-
-                        {/* Servers Grid */}
-                        <div className="mt-3.5 sm:mt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-                            {servers.map((srv) => {
-                                const isPowerToggling = powerTogglingServerId === srv.id;
-                                const isChecking = checkingServerId === srv.id;
-                                const isSelected = activeServerFilter === String(srv.id) || activeServerFilter === srv.ip;
-                                const isCurrentConnected = connectedServer && (connectedServer.id === srv.id || connectedServer.ip === srv.ip);
-
-                                return (
-                                    <div
-                                        key={srv.id}
-                                        className={`rounded-xl sm:rounded-2xl p-3 sm:p-4 border transition-all flex flex-col justify-between relative group ${
-                                            !srv.is_active
-                                                ? 'bg-[#090D15]/90 border-rose-950/60'
-                                                : isSelected
-                                                ? 'bg-[#0B101D] border-indigo-500/60 shadow-lg shadow-indigo-950/40 ring-1 ring-indigo-500/30'
-                                                : 'bg-[#080B12] border-slate-800/90 hover:border-slate-700/80 shadow-md'
-                                        }`}
-                                    >
-                                        {/* Server Header */}
-                                        <div>
-                                            <div className="flex items-start justify-between gap-2 pb-2.5 border-b border-slate-800/70">
-                                                <div className="flex items-center gap-2.5 min-w-0">
-                                                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 border ${
-                                                        !srv.is_active
-                                                            ? 'bg-rose-950/20 border-rose-500/30 text-rose-400'
-                                                            : srv.type === 'linux'
-                                                            ? 'bg-indigo-950/40 border-indigo-500/30 text-indigo-400'
-                                                            : 'bg-cyan-950/40 border-cyan-500/30 text-cyan-400'
-                                                    }`}>
-                                                        {!srv.is_active ? (
-                                                            <Power className="w-4 h-4 text-rose-400" />
-                                                        ) : srv.type === 'linux' ? (
-                                                            <Terminal className="w-4 h-4" />
-                                                        ) : (
-                                                            <Monitor className="w-4 h-4" />
-                                                        )}
-                                                    </div>
-                                                    <div className="min-w-0 flex-1">
-                                                        <div className="flex items-center gap-1.5 flex-wrap">
-                                                            <h4 className="text-xs sm:text-sm font-bold text-white font-mono truncate" title={srv.name}>
-                                                                {srv.name}
-                                                            </h4>
-                                                            {isCurrentConnected && (
-                                                                <span className="px-1.5 py-0.2 rounded text-[9px] bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-semibold uppercase">
-                                                                    Active
-                                                                </span>
-                                                            )}
-                                                        </div>
-                                                        <p className="text-[11px] text-slate-400 font-mono truncate">
-                                                            {srv.user}@{srv.ip}:{srv.port || 22}
-                                                        </p>
-                                                    </div>
-                                                </div>
-
-                                                {/* Status Pill */}
-                                                <div className="flex-shrink-0">
-                                                    {srv.is_active ? (
-                                                        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 text-[10px] font-medium font-mono">
-                                                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                                                            <span>ONLINE {srv.latency_ms ? `(${srv.latency_ms}ms)` : ''}</span>
-                                                        </span>
-                                                    ) : (
-                                                        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-rose-500/15 border border-rose-500/30 text-rose-400 text-[10px] font-semibold font-mono">
-                                                            <Power className="w-3 h-3 text-rose-400" />
-                                                            <span>OFFLINE</span>
-                                                        </span>
-                                                    )}
-                                                </div>
-                                            </div>
-
-                                            {/* Middle info */}
-                                            <div className="mt-2.5 space-y-1 text-[11px] font-mono text-slate-400">
-                                                <div className="flex items-center justify-between text-slate-300">
-                                                    <span className="text-slate-400">OS:</span>
-                                                    <span className="text-slate-200 truncate max-w-[150px]">{srv.os || 'Linux'}</span>
-                                                </div>
-                                                <div className="flex items-center justify-between">
-                                                    <span className="text-slate-400">Projects:</span>
-                                                    <span className="text-indigo-300 font-semibold">
-                                                        {srv.projects_count ?? 0} {srv.projects_count === 1 ? 'project' : 'projects'}
-                                                    </span>
-                                                </div>
-                                                {!srv.is_active && (
-                                                    <div className="mt-1.5 p-1.5 rounded-lg bg-rose-950/30 border border-rose-500/25 text-[10px] text-rose-300 font-sans leading-tight">
-                                                        Server turned off deliberately. All hosted projects are offline.
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
-
-                                        {/* Bottom Actions */}
-                                        <div className="mt-3 pt-2.5 border-t border-slate-800/80 flex items-center justify-between gap-1.5">
-                                            {/* Power Toggle Button */}
-                                            <button
-                                                type="button"
-                                                disabled={isPowerToggling}
-                                                onClick={() => handleToggleServerPower(srv)}
-                                                className={`flex-1 justify-center px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 shadow-sm disabled:opacity-50 ${
-                                                    srv.is_active
-                                                        ? 'bg-rose-950/40 hover:bg-rose-900/50 border border-rose-500/40 text-rose-300 hover:text-white'
-                                                        : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-600/30'
-                                                }`}
-                                                title={srv.is_active ? "Deliberately turn off server (all hosted projects will go offline)" : "Power on server and restore hosted applications"}
-                                            >
-                                                {isPowerToggling ? (
-                                                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                                                ) : (
-                                                    <Power className="w-3.5 h-3.5" />
-                                                )}
-                                                <span>{isPowerToggling ? 'Processing...' : srv.is_active ? 'Turn Off' : 'Turn On'}</span>
-                                            </button>
-
-                                            {/* Test SSH */}
-                                            <button
-                                                type="button"
-                                                disabled={!srv.is_active || isChecking}
-                                                onClick={() => handleCheckServerHealth(srv)}
-                                                className="px-2 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 hover:text-white text-xs transition-colors flex items-center gap-1 disabled:opacity-40"
-                                                title="Verify remote SSH connectivity & latency"
-                                            >
-                                                <RefreshCw className={`w-3.5 h-3.5 text-cyan-400 ${isChecking ? 'animate-spin' : ''}`} />
-                                                <span className="hidden sm:inline">Verify</span>
-                                            </button>
-
-                                            {/* Filter projects */}
-                                            <button
-                                                type="button"
-                                                onClick={() => setActiveServerFilter(activeServerFilter === String(srv.id) ? 'all' : String(srv.id))}
-                                                className={`px-2 py-1.5 rounded-lg border text-xs transition-colors ${
-                                                    isSelected
-                                                        ? 'bg-indigo-600 border-indigo-500 text-white'
-                                                        : 'bg-slate-900 hover:bg-slate-800 border-slate-800 text-slate-400'
-                                                }`}
-                                                title="Filter dashboard projects by this server"
-                                            >
-                                                <Layers className="w-3.5 h-3.5" />
-                                            </button>
-
-                                            {/* Delete Server */}
-                                            <button
-                                                type="button"
-                                                onClick={() => handleDeleteServer(srv)}
-                                                className="p-1.5 rounded-lg bg-slate-900 hover:bg-rose-950/30 border border-slate-800 hover:border-rose-900 text-slate-400 hover:text-rose-400 transition-colors"
-                                                title="Remove server"
-                                            >
-                                                <Trash2 className="w-3.5 h-3.5" />
-                                            </button>
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </div>
-                )}
 
                 {/* Onboarding Intent Quick Card (Shown only when no active server is connected) */}
                 {!connectedServer && (

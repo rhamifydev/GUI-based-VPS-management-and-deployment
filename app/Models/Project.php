@@ -34,6 +34,7 @@ class Project extends Model
         'has_key',
         'last_visited',
         'lastVisited',
+        'last_deploy_human',
     ];
 
     /**
