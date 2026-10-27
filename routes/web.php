@@ -30,11 +30,13 @@ Route::middleware('auth')->group(function () {
 
     // Dedicated pages for Servers and Metrics
     Route::get('/servers', [VpsConnectionController::class, 'serversPage'])->name('servers.index');
+    Route::get('/servers/{id}', [VpsConnectionController::class, 'serverDetailsPage'])->name('servers.show');
     Route::get('/metrics', [VpsConnectionController::class, 'metricsPage'])->name('servers.metrics');
 
     // Server management & Power control
     Route::get('/vps/servers', [VpsConnectionController::class, 'getServers'])->name('vps.servers.index');
     Route::post('/vps/servers', [VpsConnectionController::class, 'storeServer'])->name('vps.servers.store');
+    Route::patch('/vps/servers/{id}', [VpsConnectionController::class, 'updateServer'])->name('vps.servers.update');
     Route::post('/vps/servers/{id}/toggle-power', [VpsConnectionController::class, 'toggleServerPower'])->name('vps.servers.toggle-power');
     Route::post('/vps/servers/{id}/check', [VpsConnectionController::class, 'checkServerHealth'])->name('vps.servers.check');
     Route::get('/vps/servers/{id}/metrics-data', [VpsConnectionController::class, 'getServerMetricsData'])->name('vps.servers.metrics-data');

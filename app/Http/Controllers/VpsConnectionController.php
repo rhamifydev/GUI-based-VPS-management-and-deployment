@@ -612,6 +612,38 @@ BASH;
     }
 
     /**
+     * Render the dedicated Server Details & Workloads page.
+     */
+    public function serverDetailsPage(Request $request, $id)
+    {
+        $userId = auth()->id();
+        $server = Server::where('user_id', $userId)->where('id', $id)->first();
+        if (!$server) {
+            return redirect()->route('servers.index')->with('error', 'Server not found.');
+        }
+
+        $projects = Project::where('user_id', $userId)
+            ->where(function ($q) use ($server) {
+                $q->where('server_id', $server->id)
+                  ->orWhere('ip', $server->ip);
+            })
+            ->orderByDesc('last_visited_timestamp')
+            ->orderByDesc('updated_at')
+            ->get();
+
+        $allServers = Server::where('user_id', $userId)
+            ->orderByDesc('is_active')
+            ->orderBy('name')
+            ->get(['id', 'name', 'ip', 'is_active', 'status']);
+
+        return Inertia::render('Servers/Show', [
+            'server' => $server,
+            'projects' => $projects,
+            'allServers' => $allServers,
+        ]);
+    }
+
+    /**
      * Render the dedicated Server Metrics & Telemetry monitoring page.
      */
     public function metricsPage(Request $request)
@@ -938,6 +970,81 @@ BASH;
             'message' => "Server '{$server->name}' successfully added and saved.",
             'server' => $server->fresh(),
             'servers' => Server::where('user_id', auth()->id())->withCount('projects')->get(),
+        ]);
+    }
+
+    /**
+     * Update server profile (username, passphrase, password, name, port, key, etc.).
+     */
+    public function updateServer(Request $request, $id)
+    {
+        $server = Server::where('user_id', auth()->id())->where('id', $id)->first();
+        if (!$server) {
+            return response()->json(['success' => false, 'message' => 'Server not found.'], 404);
+        }
+
+        $validated = $request->validate([
+            'name' => 'nullable|string|max:255',
+            'user' => 'required|string|max:255',
+            'port' => 'nullable|numeric|min:1|max:65535',
+            'auth_method' => 'nullable|string|in:auto,key,password',
+            'password' => 'nullable|string',
+            'key_path' => 'nullable|string',
+            'key_content' => 'nullable|string',
+            'key_passphrase' => 'nullable|string',
+            'os' => 'nullable|string',
+            'type' => 'nullable|string|in:linux,windows',
+        ]);
+
+        $updates = [
+            'user' => trim($validated['user']),
+            'port' => !empty($validated['port']) ? (int) $validated['port'] : ($server->port ?: 22),
+            'auth_method' => $validated['auth_method'] ?? $server->auth_method,
+            'os' => $validated['os'] ?? ($server->os ?: 'Ubuntu Linux'),
+            'type' => $validated['type'] ?? ($server->type ?: 'linux'),
+        ];
+
+        if (!empty($validated['name'])) {
+            $updates['name'] = trim($validated['name']);
+        }
+
+        if (array_key_exists('password', $validated)) {
+            $updates['password'] = $validated['password'];
+        }
+        if (array_key_exists('key_passphrase', $validated)) {
+            $updates['key_passphrase'] = $validated['key_passphrase'];
+        }
+        if (array_key_exists('key_content', $validated)) {
+            $updates['key_content'] = $validated['key_content'];
+        }
+        if (array_key_exists('key_path', $validated)) {
+            $updates['key_path'] = $validated['key_path'];
+        }
+
+        $server->update($updates);
+
+        // Also synchronize updated credentials to projects on this server
+        $projectUpdates = [
+            'user' => $server->user,
+            'port' => $server->port,
+            'auth_method' => $server->auth_method,
+        ];
+        if (array_key_exists('password', $updates)) $projectUpdates['password'] = $updates['password'];
+        if (array_key_exists('key_passphrase', $updates)) $projectUpdates['key_passphrase'] = $updates['key_passphrase'];
+        if (array_key_exists('key_content', $updates)) $projectUpdates['key_content'] = $updates['key_content'];
+        if (array_key_exists('key_path', $updates)) $projectUpdates['key_path'] = $updates['key_path'];
+
+        Project::where('user_id', auth()->id())
+            ->where(function ($q) use ($server) {
+                $q->where('server_id', $server->id)
+                  ->orWhere('ip', $server->ip);
+            })
+            ->update($projectUpdates);
+
+        return response()->json([
+            'success' => true,
+            'message' => "Server profile for '{$server->name}' successfully updated.",
+            'server' => $server->fresh(),
         ]);
     }
 

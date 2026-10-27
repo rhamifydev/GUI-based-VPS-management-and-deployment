@@ -19,7 +19,8 @@ import {
     X,
     Key,
     Lock,
-    Shield
+    Shield,
+    ChevronRight
 } from 'lucide-react';
 
 export default function ServersIndex({ servers: initialServers = [], projects = [] }) {
@@ -318,11 +319,15 @@ export default function ServersIndex({ servers: initialServers = [], projects = 
                                             : 'bg-[#0E131F] border-slate-800 hover:border-slate-700'
                                     }`}
                                 >
-                                    <div>
+                                    <Link
+                                        href={route('servers.show', srv.id)}
+                                        className="block group/upper transition-all cursor-pointer"
+                                        title="Click to view hosted projects & edit server profile"
+                                    >
                                         {/* Card Header */}
                                         <div className="flex items-start justify-between gap-3 pb-3 border-b border-slate-800/80">
                                             <div className="flex items-center gap-3 min-w-0">
-                                                <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 border ${
+                                                <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 border transition-transform group-hover/upper:scale-105 ${
                                                     !srv.is_active
                                                         ? 'bg-rose-950/30 border-rose-500/30 text-rose-400'
                                                         : srv.type === 'linux'
@@ -338,9 +343,12 @@ export default function ServersIndex({ servers: initialServers = [], projects = 
                                                     )}
                                                 </div>
                                                 <div className="min-w-0 flex-1">
-                                                    <h3 className="text-sm font-bold text-white font-mono truncate" title={srv.name}>
-                                                        {srv.name}
-                                                    </h3>
+                                                    <div className="flex items-center gap-1.5">
+                                                        <h3 className="text-sm font-bold text-white group-hover/upper:text-indigo-400 font-mono truncate transition-colors" title={srv.name}>
+                                                            {srv.name}
+                                                        </h3>
+                                                        <ChevronRight className="w-3.5 h-3.5 text-slate-500 opacity-0 group-hover/upper:opacity-100 group-hover/upper:translate-x-0.5 transition-all shrink-0" />
+                                                    </div>
                                                     <p className="text-[11px] text-slate-400 font-mono truncate">
                                                         {srv.user}@{srv.ip}:{srv.port || 22}
                                                     </p>
@@ -387,8 +395,13 @@ export default function ServersIndex({ servers: initialServers = [], projects = 
                                                     Server turned off deliberately. All {hostedCount} hosted projects are currently suspended.
                                                 </div>
                                             )}
+
+                                            <div className="pt-2 flex items-center justify-between text-[11px] text-indigo-400/90 font-sans font-semibold group-hover/upper:text-indigo-300 transition-colors">
+                                                <span>View Projects & Edit Server Profile</span>
+                                                <span>→</span>
+                                            </div>
                                         </div>
-                                    </div>
+                                    </Link>
 
                                     {/* Action buttons */}
                                     <div className="mt-5 pt-3.5 border-t border-slate-800 space-y-2">
