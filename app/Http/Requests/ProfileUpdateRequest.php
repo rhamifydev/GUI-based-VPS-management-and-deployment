@@ -18,6 +18,8 @@ class ProfileUpdateRequest extends FormRequest
     {
         return [
             'name' => ['required', 'string', 'max:255'],
+            'github_username' => ['nullable', 'string', 'max:255'],
+            'avatar' => ['nullable', 'string', 'max:1000'],
             'email' => [
                 'required',
                 'string',

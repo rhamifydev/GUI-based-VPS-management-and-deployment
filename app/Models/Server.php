@@ -65,7 +65,11 @@ class Server extends Model
 
     public function getProjectsCountAttribute(): int
     {
-        return Project::where('user_id', $this->user_id)
+        return Project::where(function ($q) {
+                if (!empty($this->user_id)) {
+                    $q->where('user_id', $this->user_id);
+                }
+            })
             ->where(function ($q) {
                 $q->where('server_id', $this->id)
                   ->orWhere('ip', $this->ip);

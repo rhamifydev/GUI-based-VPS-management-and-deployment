@@ -91,4 +91,26 @@ class Project extends Model
 
         return 'Recently';
     }
+
+    /**
+     * Get human-readable time elapsed since last real deployment.
+     */
+    public function getLastDeployHumanAttribute(): string
+    {
+        $time = $this->attributes['last_deploy_time'] ?? null;
+        if (empty($time)) {
+            return $this->updated_at ? $this->updated_at->diffForHumans() : 'Never';
+        }
+
+        if ($time === 'Just now' || $time === 'Linked just now') {
+            return $this->updated_at ? $this->updated_at->diffForHumans() : 'Just now';
+        }
+
+        try {
+            $date = \Carbon\Carbon::parse($time);
+            return $date->diffForHumans();
+        } catch (\Throwable $e) {
+            return $time;
+        }
+    }
 }

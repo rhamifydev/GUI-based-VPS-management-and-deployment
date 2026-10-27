@@ -1743,11 +1743,12 @@ BASH;
 
             $duration = round(microtime(true) - $startTime, 1) . 's';
 
+            $deployTimestamp = now()->toIso8601String();
             if ($project) {
                 $project->update([
                     'commit' => $commitHash,
                     'commit_message' => $commitMsg,
-                    'last_deploy_time' => 'Just now',
+                    'last_deploy_time' => $deployTimestamp,
                     'deploy_duration' => $duration,
                     'is_connected' => true,
                     'auth_status' => 'authenticated',
@@ -1763,6 +1764,7 @@ BASH;
                 'output' => implode("\n", $outputLogs),
                 'deploy_duration' => $duration,
                 'deploy_time' => 'Just now',
+                'last_deploy_time' => $deployTimestamp,
                 'project' => $project ? $project->fresh() : null,
             ]);
 

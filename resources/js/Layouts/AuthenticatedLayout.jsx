@@ -17,7 +17,9 @@ import {
     Sliders,
     Globe,
     Home,
-    Loader2
+    Loader2,
+    User,
+    Settings
 } from 'lucide-react';
 
 export default function AuthenticatedLayout({ children }) {
@@ -67,6 +69,7 @@ export default function AuthenticatedLayout({ children }) {
         { label: 'VPS Dashboard', href: route('dashboard'), icon: Layers, active: route().current('dashboard') },
         { label: 'Servers & VPS', href: route('servers.index'), icon: Server, active: route().current('servers.index') },
         { label: 'Server Metrics', href: route('servers.metrics'), icon: Activity, active: route().current('servers.metrics') },
+        { label: 'Profile & Settings', href: route('profile.edit'), icon: User, active: route().current('profile.edit') },
         { label: 'Workflow Guide', href: '/#pipeline', icon: Sliders, active: false },
     ];
 
@@ -172,24 +175,32 @@ export default function AuthenticatedLayout({ children }) {
 
             {/* User Profile & Logout at Bottom */}
             <div className="p-4 border-t border-slate-800/80 bg-[#0A0D14]/70">
-                <div className="flex items-center gap-3">
-                    <img
-                        src={user.avatar || 'https://avatars.githubusercontent.com/u/9919?v=4'}
-                        alt={user.name}
-                        className="w-10 h-10 rounded-xl bg-slate-800 border border-slate-700 object-cover"
-                        onError={(e) => {
-                            e.target.style.display = 'none';
-                        }}
-                    />
+                <Link
+                    href={route('profile.edit')}
+                    className="flex items-center gap-3 p-1.5 -m-1.5 rounded-xl hover:bg-slate-800/60 transition-all group"
+                    title="Account Settings"
+                >
+                    <div className="relative">
+                        <img
+                            src={user.avatar || 'https://avatars.githubusercontent.com/u/9919?v=4'}
+                            alt={user.name}
+                            className="w-10 h-10 rounded-xl bg-slate-800 border border-slate-700 object-cover group-hover:border-indigo-500 transition-colors"
+                            onError={(e) => {
+                                e.target.style.display = 'none';
+                            }}
+                        />
+                        <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-500 border-2 border-[#0A0D14]" />
+                    </div>
                     <div className="min-w-0 flex-1">
-                        <div className="text-xs font-bold text-white truncate">
-                            {user.name}
+                        <div className="text-xs font-bold text-white group-hover:text-indigo-400 transition-colors truncate flex items-center justify-between">
+                            <span>{user.name}</span>
+                            <Settings className="w-3.5 h-3.5 text-slate-500 group-hover:text-indigo-400 opacity-0 group-hover:opacity-100 transition-opacity" />
                         </div>
                         <div className="text-[11px] text-slate-400 font-mono truncate">
                             {user.github_username ? `@${user.github_username}` : user.email}
                         </div>
                     </div>
-                </div>
+                </Link>
 
                 <Link
                     href={route('logout')}

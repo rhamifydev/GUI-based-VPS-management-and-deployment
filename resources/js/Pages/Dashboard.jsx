@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { Head, usePage } from '@inertiajs/react';
 import {
@@ -199,12 +199,6 @@ export default function Dashboard({ initialProjects = [], initialServers = [] })
         }
     }, [connectedServer]);
 
-    const openServerExplorer = (tab = 'existing') => {
-        setExplorerTab(tab);
-        setSetupStep('explorer');
-        setSetupModalOpen(true);
-    };
-
     const [servers, setServers] = useState(() => {
         if (Array.isArray(initialServers) && initialServers.length > 0) {
             return initialServers;
@@ -228,6 +222,43 @@ export default function Dashboard({ initialProjects = [], initialServers = [] })
     const getProjectServer = (project) => {
         if (project.server) return project.server;
         return servers.find(s => s.id === project.server_id || s.ip === project.ip);
+    };
+
+    const formatLastDeploy = (proj) => {
+        if (!proj) return 'Never';
+        if (proj.last_deploy_human) return proj.last_deploy_human;
+
+        const val = proj.last_deploy_time || proj.lastDeployTime;
+        if (!val || val === 'Never') {
+            if (proj.updated_at) {
+                const diff = Date.now() - new Date(proj.updated_at).getTime();
+                if (diff < 60000) return 'Just now';
+                if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+                if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+                return `${Math.floor(diff / 86400000)}d ago`;
+            }
+            return 'Never';
+        }
+
+        const date = new Date(val);
+        if (!isNaN(date.getTime())) {
+            const diff = Date.now() - date.getTime();
+            if (diff < 60000) return 'Just now';
+            if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+            if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+            return `${Math.floor(diff / 86400000)}d ago`;
+        }
+
+        if ((val === 'Just now' || val === 'Linked just now') && proj.updated_at) {
+            const diff = Date.now() - new Date(proj.updated_at).getTime();
+            if (diff >= 60000) {
+                if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+                if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+                return `${Math.floor(diff / 86400000)}d ago`;
+            }
+        }
+
+        return val;
     };
 
     const handleToggleServerPower = async (serverOrId) => {
@@ -394,6 +425,37 @@ export default function Dashboard({ initialProjects = [], initialServers = [] })
         if (activeServerFilter === 'all') return true;
         return (p.server_id && String(p.server_id) === String(activeServerFilter)) || p.ip === activeServerFilter;
     });
+
+    // Filter projects associated with active connected server
+    const connectedServerProjects = useMemo(() => {
+        if (!connectedServer) return [];
+        return projects.filter(p => 
+            p.server_id === connectedServer.id || 
+            p.ip === connectedServer.ip || 
+            (p.server && (p.server.id === connectedServer.id || p.server.ip === connectedServer.ip))
+        );
+    }, [projects, connectedServer]);
+
+    const connectedProjectsCount = connectedServerProjects.length > 0 
+        ? connectedServerProjects.length 
+        : (connectedServer?.projects_count || serverFolders.length || 0);
+
+    const openServerExplorer = (tab = 'existing') => {
+        if ((!serverFolders || serverFolders.length === 0) && connectedServerProjects.length > 0) {
+            setServerFolders(connectedServerProjects.map(p => ({
+                id: p.id,
+                name: p.name,
+                path: p.path || (p.type === 'linux' ? `/var/www/${p.name}` : `C:\\inetpub\\wwwroot\\${p.name}`),
+                framework: p.framework || 'Web App',
+                branch: p.branch || 'main',
+                domain: p.domain || '',
+                description: p.description || `Linked workload on ${connectedServer?.ip || ''}`,
+            })));
+        }
+        setExplorerTab(tab);
+        setSetupStep('explorer');
+        setSetupModalOpen(true);
+    };
 
     const [isCheckingAllAuth, setIsCheckingAllAuth] = useState(false);
     const [editingDomainProjectId, setEditingDomainProjectId] = useState(null);
@@ -632,7 +694,10 @@ export default function Dashboard({ initialProjects = [], initialServers = [] })
                 isConnected: true,
                 auth_status: 'authenticated',
                 status: 'Live & Authenticated',
+                last_deploy_time: data.last_deploy_time || new Date().toISOString(),
+                last_deploy_human: 'Just now',
                 lastDeployTime: 'Just now',
+                deploy_duration: data.deploy_duration || '3s',
                 deployDuration: data.deploy_duration || '3s',
                 commit: data.commit || 'HEAD',
                 commitMessage: data.commit_message || 'Pulled updates from remote',
@@ -1113,7 +1178,7 @@ export default function Dashboard({ initialProjects = [], initialServers = [] })
                                         {connectedServer.os}
                                     </span>
                                     <span className="text-[10px] sm:text-xs text-emerald-400 font-semibold font-mono">
-                                        • {serverFolders.length} dirs
+                                        • {connectedProjectsCount} {connectedProjectsCount === 1 ? 'project' : 'projects'}
                                     </span>
                                 </div>
                             </div>
@@ -1136,7 +1201,7 @@ export default function Dashboard({ initialProjects = [], initialServers = [] })
                                     className="flex-1 sm:flex-initial px-3 py-1.5 rounded-lg sm:rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] sm:text-xs font-semibold shadow-md shadow-indigo-600/30 flex items-center justify-center gap-1.5 transition-all"
                                 >
                                     <FolderGit2 className="w-3.5 h-3.5 text-indigo-200" />
-                                    <span>Server Projects ({serverFolders.length})</span>
+                                    <span>Server Projects ({connectedProjectsCount})</span>
                                 </button>
                             )}
                             <button
@@ -1343,7 +1408,7 @@ export default function Dashboard({ initialProjects = [], initialServers = [] })
                                                 className="w-full sm:w-auto justify-center px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs transition-all shadow-lg shadow-emerald-600/25 flex items-center gap-2"
                                             >
                                                 <FolderGit2 className="w-4 h-4" />
-                                                <span>Server Projects & Directories ({serverFolders.length})</span>
+                                                <span>Server Projects & Directories ({connectedProjectsCount})</span>
                                             </button>
                                         )}
                                         <button
@@ -1571,18 +1636,18 @@ export default function Dashboard({ initialProjects = [], initialServers = [] })
 
                                                 {/* Deployment Stats: Last Deploy Time, Time it takes, and Commit Message */}
                                                 <div className="mt-3.5 p-3 sm:p-3.5 rounded-xl bg-slate-900/70 border border-slate-800/80 space-y-2.5">
-                                                    {/* Deploy timing & duration */}
-                                                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs pb-2.5 border-b border-slate-800/70">
-                                                        <div className="flex items-center gap-1.5 font-mono">
-                                                            <Clock className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
-                                                            <span className="text-slate-400 text-[11px]">Last deploy:</span>
-                                                            <span className="text-slate-200 font-semibold text-[11px]">{project.lastDeployTime || 'Just now'}</span>
+                                                    {/* Deploy timing & duration: strictly on ONE LINE on mobile without breaking */}
+                                                    <div className="flex items-center justify-between gap-1.5 sm:gap-2 text-[10.5px] sm:text-xs pb-2.5 border-b border-slate-800/70 whitespace-nowrap overflow-x-auto no-scrollbar">
+                                                        <div className="flex items-center gap-1 sm:gap-1.5 font-mono min-w-0 flex-shrink-0">
+                                                            <Clock className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-emerald-400 flex-shrink-0" />
+                                                            <span className="text-slate-400">Last deploy:</span>
+                                                            <span className="text-slate-200 font-semibold">{formatLastDeploy(project)}</span>
                                                         </div>
-                                                        <div className="flex items-center gap-1.5 font-mono">
-                                                            <Zap className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
-                                                            <span className="text-slate-400 text-[11px]">Time it takes:</span>
-                                                            <span className="px-2 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/20 text-amber-300 font-bold text-[11px]">
-                                                                {project.deployDuration || '18s'}
+                                                        <div className="flex items-center gap-1 sm:gap-1.5 font-mono flex-shrink-0">
+                                                            <Zap className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-amber-400 flex-shrink-0" />
+                                                            <span className="text-slate-400">Time it takes:</span>
+                                                            <span className="px-1.5 sm:px-2 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/20 text-amber-300 font-bold text-[10px] sm:text-[11px]">
+                                                                {project.deploy_duration || project.deployDuration || '18s'}
                                                             </span>
                                                         </div>
                                                     </div>
@@ -1808,7 +1873,7 @@ export default function Dashboard({ initialProjects = [], initialServers = [] })
                                             }`}
                                         >
                                             <Folder className="w-4 h-4" />
-                                            <span>Folders on Server ({serverFolders.length})</span>
+                                            <span>Folders on Server ({serverFolders.length > 0 ? serverFolders.length : connectedProjectsCount})</span>
                                         </button>
                                         <button
                                             type="button"
@@ -2102,7 +2167,7 @@ export default function Dashboard({ initialProjects = [], initialServers = [] })
                                                     className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/40 text-indigo-300 hover:text-white text-xs font-semibold transition-all shadow-sm"
                                                 >
                                                     <FolderGit2 className="w-3.5 h-3.5 text-indigo-400" />
-                                                    <span>Return to Server Projects & Directories ({serverFolders.length})</span>
+                                                    <span>Return to Server Projects & Directories ({connectedProjectsCount})</span>
                                                     <ChevronRight className="w-3 h-3" />
                                                 </button>
                                             </div>
