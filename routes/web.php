@@ -28,6 +28,13 @@ Route::middleware('auth')->group(function () {
     Route::post('/vps/create-project', [VpsConnectionController::class, 'createProject'])->name('vps.create-project');
     Route::post('/vps/deploy', [VpsConnectionController::class, 'deployProject'])->name('vps.deploy');
 
+    // Server management & Power control
+    Route::get('/vps/servers', [VpsConnectionController::class, 'getServers'])->name('vps.servers.index');
+    Route::post('/vps/servers', [VpsConnectionController::class, 'storeServer'])->name('vps.servers.store');
+    Route::post('/vps/servers/{id}/toggle-power', [VpsConnectionController::class, 'toggleServerPower'])->name('vps.servers.toggle-power');
+    Route::post('/vps/servers/{id}/check', [VpsConnectionController::class, 'checkServerHealth'])->name('vps.servers.check');
+    Route::delete('/vps/servers/{id}', [VpsConnectionController::class, 'destroyServer'])->name('vps.servers.destroy');
+
     // Project persistence & real server authentication monitoring
     Route::get('/vps/projects', [VpsConnectionController::class, 'getProjects'])->name('vps.projects.index');
     Route::post('/vps/projects', [VpsConnectionController::class, 'storeProject'])->name('vps.projects.store');

@@ -37,4 +37,12 @@ class User extends Authenticatable
     {
         return $this->hasMany(Project::class);
     }
+
+    /**
+     * Get the user's saved VPS servers.
+     */
+    public function servers(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(Server::class);
+    }
 }

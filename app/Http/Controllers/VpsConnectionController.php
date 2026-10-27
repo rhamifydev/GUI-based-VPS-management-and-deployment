@@ -7,6 +7,7 @@ use phpseclib4\Net\SSH2;
 use phpseclib4\Crypt\PublicKeyLoader;
 use Illuminate\Support\Facades\Log;
 use App\Models\Project;
+use App\Models\Server;
 use Inertia\Inertia;
 
 class VpsConnectionController extends Controller
@@ -391,11 +392,44 @@ BASH;
                 ];
             }
 
+            $serverName = $user !== 'root' ? "{$user}@{$ip}" : "vps-{$ip}";
+            $dbServer = null;
+            if (auth()->check()) {
+                $dbServer = Server::updateOrCreate(
+                    [
+                        'user_id' => auth()->id(),
+                        'ip' => $ip,
+                    ],
+                    [
+                        'name' => $serverName,
+                        'port' => $port,
+                        'user' => $user,
+                        'os' => $osInfo,
+                        'type' => $osType,
+                        'auth_method' => $authMethod,
+                        'key_path' => $activeKeyPath,
+                        'key_content' => !empty($validated['key_content']) ? $validated['key_content'] : null,
+                        'key_passphrase' => !empty($passphrase) ? $passphrase : null,
+                        'password' => !empty($validated['password']) ? $validated['password'] : null,
+                        'status' => 'online',
+                        'is_active' => true,
+                        'last_checked_at' => now(),
+                        'last_error' => null,
+                    ]
+                );
+
+                Project::where('user_id', auth()->id())
+                    ->where('ip', $ip)
+                    ->whereNull('server_id')
+                    ->update(['server_id' => $dbServer->id]);
+            }
+
             return response()->json([
                 'success' => true,
                 'message' => "Successfully connected to {$user}@{$ip}:{$port}",
                 'server' => [
-                    'name' => ($user !== 'root' ? "{$user}-vps" : "vps-{$ip}"),
+                    'id' => $dbServer ? $dbServer->id : null,
+                    'name' => $dbServer ? $dbServer->name : $serverName,
                     'ip' => $ip,
                     'port' => (string) $port,
                     'user' => $user,
@@ -403,7 +437,9 @@ BASH;
                     'type' => $osType,
                     'auth_method' => $authMethod,
                     'key_path' => $activeKeyPath,
-                    'status' => 'Online & Synced',
+                    'status' => 'online',
+                    'is_active' => true,
+                    'projects_count' => $dbServer ? $dbServer->projects_count : count($folders),
                 ],
                 'folders' => $folders,
                 'commands' => $executedCommands,
@@ -501,18 +537,339 @@ BASH;
     }
 
     /**
-     * Render the Dashboard with user's persisted projects.
+     * Render the Dashboard with user's persisted servers and projects.
      */
     public function dashboard(Request $request)
     {
-        $projects = Project::where('user_id', auth()->id())
+        $userId = auth()->id();
+
+        // 1. Auto-discover/seed Server records for any projects that don't have a linked server yet
+        $userProjects = Project::where('user_id', $userId)->get();
+        foreach ($userProjects as $proj) {
+            $server = Server::where('user_id', $userId)->where('ip', $proj->ip)->first();
+            if (!$server) {
+                $server = Server::create([
+                    'user_id' => $userId,
+                    'name' => ($proj->user !== 'root' ? "{$proj->user}@{$proj->ip}" : "vps-{$proj->ip}"),
+                    'ip' => $proj->ip,
+                    'port' => $proj->port ?: 22,
+                    'user' => $proj->user ?: 'root',
+                    'auth_method' => $proj->auth_method ?: 'auto',
+                    'key_path' => $proj->key_path,
+                    'key_content' => $proj->key_content,
+                    'key_passphrase' => $proj->key_passphrase,
+                    'password' => $proj->password,
+                    'os' => $proj->os ?: 'Ubuntu Linux',
+                    'type' => $proj->type ?: 'linux',
+                    'status' => $proj->is_connected ? 'online' : 'offline',
+                    'is_active' => (bool) $proj->is_connected,
+                    'latency_ms' => $proj->latency_ms,
+                    'last_checked_at' => now(),
+                ]);
+            }
+            if ($proj->server_id !== $server->id) {
+                $proj->update(['server_id' => $server->id]);
+            }
+        }
+
+        $servers = Server::where('user_id', $userId)
+            ->withCount('projects')
+            ->orderByDesc('is_active')
+            ->orderBy('name')
+            ->get();
+
+        $projects = Project::where('user_id', $userId)
+            ->with('server')
             ->orderByDesc('last_visited_timestamp')
             ->orderByDesc('updated_at')
             ->get();
 
         return Inertia::render('Dashboard', [
             'initialProjects' => $projects,
+            'initialServers' => $servers,
         ]);
+    }
+
+    /**
+     * Get all persisted servers for current user.
+     */
+    public function getServers(Request $request)
+    {
+        $servers = Server::where('user_id', auth()->id())
+            ->withCount('projects')
+            ->orderByDesc('is_active')
+            ->orderBy('name')
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'servers' => $servers,
+        ]);
+    }
+
+    /**
+     * Store or update a server on the platform.
+     */
+    public function storeServer(Request $request)
+    {
+        $validated = $request->validate([
+            'name' => 'nullable|string|max:255',
+            'ip' => 'required|string',
+            'port' => 'nullable|numeric|min:1|max:65535',
+            'user' => 'required|string',
+            'auth_method' => 'nullable|string|in:auto,key,password',
+            'password' => 'nullable|string',
+            'key_path' => 'nullable|string',
+            'key_content' => 'nullable|string',
+            'key_passphrase' => 'nullable|string',
+            'os' => 'nullable|string',
+            'type' => 'nullable|string|in:linux,windows',
+        ]);
+
+        $ip = trim($validated['ip']);
+        $port = !empty($validated['port']) ? (int) $validated['port'] : 22;
+        $user = trim($validated['user']);
+        $name = !empty($validated['name']) ? trim($validated['name']) : "{$user}@{$ip}";
+
+        $server = Server::updateOrCreate(
+            [
+                'user_id' => auth()->id(),
+                'ip' => $ip,
+            ],
+            [
+                'name' => $name,
+                'port' => $port,
+                'user' => $user,
+                'auth_method' => $validated['auth_method'] ?? 'auto',
+                'os' => $validated['os'] ?? 'Ubuntu Linux',
+                'type' => $validated['type'] ?? 'linux',
+                'status' => 'online',
+                'is_active' => true,
+                'last_checked_at' => now(),
+            ]
+        );
+
+        if (!empty($validated['password'])) $server->password = $validated['password'];
+        if (!empty($validated['key_path'])) $server->key_path = $validated['key_path'];
+        if (!empty($validated['key_content'])) $server->key_content = $validated['key_content'];
+        if (!empty($validated['key_passphrase'])) $server->key_passphrase = $validated['key_passphrase'];
+        $server->save();
+
+        Project::where('user_id', auth()->id())
+            ->where('ip', $ip)
+            ->whereNull('server_id')
+            ->update(['server_id' => $server->id]);
+
+        return response()->json([
+            'success' => true,
+            'message' => "Server '{$server->name}' successfully added and saved.",
+            'server' => $server->fresh(),
+            'servers' => Server::where('user_id', auth()->id())->withCount('projects')->get(),
+        ]);
+    }
+
+    /**
+     * Deliberately toggle power for a server.
+     * When turned off, ALL projects under this server become offline immediately.
+     */
+    public function toggleServerPower(Request $request, $id)
+    {
+        $server = Server::where('user_id', auth()->id())->where('id', $id)->first();
+        if (!$server) {
+            return response()->json(['success' => false, 'message' => 'Server not found.'], 404);
+        }
+
+        if ($server->is_active) {
+            // Power OFF server
+            $server->powerOff("Server '{$server->name}' ({$server->ip}) was deliberately turned off by user.");
+
+            $updatedProjects = Project::where('user_id', auth()->id())
+                ->with('server')
+                ->orderByDesc('last_visited_timestamp')
+                ->orderByDesc('updated_at')
+                ->get();
+
+            return response()->json([
+                'success' => true,
+                'is_active' => false,
+                'status' => 'offline',
+                'message' => "Server '{$server->name}' ({$server->ip}) is now turned OFF. All associated projects are offline.",
+                'server' => $server->fresh(),
+                'servers' => Server::where('user_id', auth()->id())->withCount('projects')->get(),
+                'projects' => $updatedProjects,
+            ]);
+        } else {
+            // Power ON server
+            $server->powerOn();
+
+            // Probe connection
+            $probe = $this->probeServerConnection($server);
+
+            $updatedProjects = Project::where('user_id', auth()->id())
+                ->with('server')
+                ->orderByDesc('last_visited_timestamp')
+                ->orderByDesc('updated_at')
+                ->get();
+
+            return response()->json([
+                'success' => true,
+                'is_active' => true,
+                'status' => $server->status,
+                'latency_ms' => $server->latency_ms,
+                'message' => "Server '{$server->name}' ({$server->ip}) is now turned ON.",
+                'server' => $server->fresh(),
+                'servers' => Server::where('user_id', auth()->id())->withCount('projects')->get(),
+                'projects' => $updatedProjects,
+                'probe' => $probe,
+            ]);
+        }
+    }
+
+    /**
+     * Check server health & latency via SSH.
+     */
+    public function checkServerHealth(Request $request, $id)
+    {
+        $server = Server::where('user_id', auth()->id())->where('id', $id)->first();
+        if (!$server) {
+            return response()->json(['success' => false, 'message' => 'Server not found.'], 404);
+        }
+
+        if (!$server->is_active) {
+            return response()->json([
+                'success' => false,
+                'message' => "Server '{$server->name}' is currently turned off.",
+                'server' => $server,
+            ]);
+        }
+
+        $probe = $this->probeServerConnection($server);
+
+        return response()->json([
+            'success' => $probe['success'],
+            'message' => $probe['message'],
+            'latency_ms' => $server->latency_ms,
+            'server' => $server->fresh(),
+        ]);
+    }
+
+    /**
+     * Delete server from platform.
+     */
+    public function destroyServer(Request $request, $id)
+    {
+        $server = Server::where('user_id', auth()->id())->where('id', $id)->first();
+        if (!$server) {
+            return response()->json(['success' => false, 'message' => 'Server not found.'], 404);
+        }
+
+        $name = $server->name;
+        Project::where('server_id', $server->id)->update(['server_id' => null]);
+        $server->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => "Server '{$name}' deleted from dashboard.",
+            'servers' => Server::where('user_id', auth()->id())->withCount('projects')->get(),
+        ]);
+    }
+
+    /**
+     * Probe a server connection and record latency & status.
+     */
+    private function probeServerConnection(Server $server): array
+    {
+        $startTime = microtime(true);
+        $user = $server->user ?: 'root';
+        $ip = $server->ip;
+        $port = (int) ($server->port ?: 22);
+
+        try {
+            $ssh = new SSH2($ip, $port, 8);
+            $authenticated = false;
+            $err = null;
+
+            if ($server->auth_method === 'key' || $server->auth_method === 'auto') {
+                $resolvedKey = $this->resolveSshKey($server->key_path, $server->key_content);
+                if ($resolvedKey) {
+                    try {
+                        $key = PublicKeyLoader::load($resolvedKey['content'], $server->key_passphrase ?: null);
+                        if ($ssh->login($user, $key)) {
+                            $authenticated = true;
+                        } else {
+                            $err = $ssh->getLastError() ?: 'Public key rejected.';
+                        }
+                    } catch (\Throwable $e) {
+                        $err = 'Key load error: ' . $e->getMessage();
+                    }
+                }
+            }
+
+            if (!$authenticated && (!empty($server->password) || $server->auth_method === 'password')) {
+                if (!empty($server->password) && $ssh->login($user, $server->password)) {
+                    $authenticated = true;
+                } else {
+                    $err = $ssh->getLastError() ?: 'Password rejected.';
+                }
+            }
+
+            $latency = (int) round((microtime(true) - $startTime) * 1000);
+
+            if ($authenticated) {
+                $server->update([
+                    'status' => 'online',
+                    'latency_ms' => $latency,
+                    'last_checked_at' => now(),
+                    'last_error' => null,
+                ]);
+
+                // Also update projects under this server
+                Project::where('user_id', $server->user_id)
+                    ->where(function ($q) use ($server) {
+                        $q->where('server_id', $server->id)
+                          ->orWhere('ip', $server->ip);
+                    })
+                    ->update([
+                        'is_connected' => true,
+                        'auth_status' => 'authenticated',
+                        'latency_ms' => $latency,
+                        'last_auth_check_at' => now(),
+                        'last_auth_message' => "Connected to {$server->name} ({$latency}ms)",
+                    ]);
+
+                return [
+                    'success' => true,
+                    'latency_ms' => $latency,
+                    'message' => "Server '{$server->name}' ({$server->ip}) online. Latency: {$latency}ms.",
+                ];
+            } else {
+                $server->update([
+                    'status' => 'auth_failed',
+                    'latency_ms' => null,
+                    'last_checked_at' => now(),
+                    'last_error' => $err ?: 'Authentication rejected.',
+                ]);
+
+                return [
+                    'success' => false,
+                    'latency_ms' => null,
+                    'message' => "Authentication failed: " . ($err ?: 'rejected'),
+                ];
+            }
+        } catch (\Throwable $e) {
+            $server->update([
+                'status' => 'unreachable',
+                'latency_ms' => null,
+                'last_checked_at' => now(),
+                'last_error' => 'Unreachable: ' . $e->getMessage(),
+            ]);
+
+            return [
+                'success' => false,
+                'latency_ms' => null,
+                'message' => 'Unreachable: ' . $e->getMessage(),
+            ];
+        }
     }
 
     /**
@@ -571,8 +928,25 @@ BASH;
             $dom = null;
         }
 
+        $server = Server::where('user_id', auth()->id())->where('ip', $validated['ip'])->first();
+        if (!$server) {
+            $server = Server::create([
+                'user_id' => auth()->id(),
+                'name' => ($validated['user'] ?? 'root') . '@' . $validated['ip'],
+                'ip' => $validated['ip'],
+                'port' => !empty($validated['port']) ? (int) $validated['port'] : 22,
+                'user' => $validated['user'] ?? 'root',
+                'auth_method' => $validated['auth_method'] ?? 'auto',
+                'os' => $validated['os'] ?? 'Linux Server',
+                'type' => $validated['type'] ?? 'linux',
+                'status' => 'online',
+                'is_active' => true,
+            ]);
+        }
+
         $data = [
             'user_id' => auth()->id(),
+            'server_id' => $server->id,
             'name' => $validated['name'],
             'description' => $validated['description'] ?? null,
             'ip' => $validated['ip'],
@@ -770,6 +1144,25 @@ BASH;
      */
     private function performAuthCheck(Project $project): array
     {
+        // 0. If the server associated with this project is deliberately turned off, do not probe SSH
+        $server = $project->server ?? Server::where('user_id', $project->user_id)->where('ip', $project->ip)->first();
+        if ($server && (!$server->is_active || $server->status === 'offline')) {
+            $project->update([
+                'is_connected' => false,
+                'auth_status' => 'offline',
+                'latency_ms' => null,
+                'last_auth_check_at' => now(),
+                'last_auth_message' => "Server '{$server->name}' ({$server->ip}) is deliberately turned off.",
+            ]);
+
+            return [
+                'success' => false,
+                'offline' => true,
+                'latency_ms' => null,
+                'message' => "Server '{$server->name}' is currently turned off.",
+            ];
+        }
+
         $ip = trim($project->ip);
         $port = (int) ($project->port ?: 22);
         $user = trim($project->user ?: 'root');
@@ -978,6 +1371,14 @@ BASH;
                 'success' => false,
                 'message' => 'Missing IP address or project path for deployment.'
             ], 422);
+        }
+
+        $server = $project ? ($project->server ?? Server::where('user_id', $project->user_id)->where('ip', $project->ip)->first()) : Server::where('user_id', auth()->id())->where('ip', $ip)->first();
+        if ($server && (!$server->is_active || $server->status === 'offline')) {
+            return response()->json([
+                'success' => false,
+                'message' => "Deployment aborted: Server '{$server->name}' ({$server->ip}) is currently turned off. Please turn on the server first.",
+            ], 400);
         }
 
         try {

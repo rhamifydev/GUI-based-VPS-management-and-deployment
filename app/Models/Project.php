@@ -59,6 +59,11 @@ class Project extends Model
         return $this->belongsTo(User::class);
     }
 
+    public function server(): BelongsTo
+    {
+        return $this->belongsTo(Server::class);
+    }
+
     public function getHasPasswordAttribute(): bool
     {
         return !empty($this->attributes['password']);
