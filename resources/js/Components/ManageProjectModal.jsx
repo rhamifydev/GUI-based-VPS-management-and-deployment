@@ -38,7 +38,7 @@ export default function ManageProjectModal({
     const [branch, setBranch] = useState(project.branch || 'main');
     const [description, setDescription] = useState(project.description || '');
     const [autoConfigureServer, setAutoConfigureServer] = useState(true);
-    const [enableSsl, setEnableSsl] = useState(false);
+    const [enableSsl, setEnableSsl] = useState(true);
     const [sudoPassword, setSudoPassword] = useState('');
     const [rememberSudoPassword, setRememberSudoPassword] = useState(true);
     const [showSudoInput, setShowSudoInput] = useState(false);
@@ -434,6 +434,15 @@ export default function ManageProjectModal({
                                             <span className="text-slate-500 text-[9px] block uppercase">Target / Value</span>
                                             <span className="text-cyan-300 font-bold">{project.ip}</span>
                                         </div>
+                                    </div>
+
+                                    <div className="p-2.5 bg-indigo-950/20 border border-indigo-500/20 rounded-lg text-[11px] text-slate-300 space-y-1">
+                                        <div className="font-semibold text-indigo-300 flex items-center gap-1.5">
+                                            <span>☁️ Cloudflare Tip:</span>
+                                        </div>
+                                        <p className="text-slate-400">
+                                            If you see <strong className="text-amber-300">"Error 525: SSL handshake failed"</strong>, Cloudflare is attempting to connect to origin port 443 before SSL is ready. Either keep <strong>Issue Free SSL Certificate</strong> checked, or in your Cloudflare Dashboard set <em>SSL/TLS Mode</em> to <strong>Flexible</strong> until SSL finishes configuring.
+                                        </p>
                                     </div>
                                 </div>
                             </div>

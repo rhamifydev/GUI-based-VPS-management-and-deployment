@@ -1782,22 +1782,34 @@ BASH;
         $siteName = basename($siteConfigPath);
         $enabledLink = "/etc/nginx/sites-enabled/{$siteName}";
 
-        if ($existingSiteFile) {
-            $logs[] = "Found existing Nginx config at {$existingSiteFile}. Updating server_name and root...";
-            $updateNginxCmd = "
-                {$sudoPrefix} sed -i -E 's|server_name[[:space:]]+.*?;|server_name {$cleanDomain} www.{$cleanDomain};|g' {$existingSiteFile}
-                {$sudoPrefix} sed -i -E 's|root[[:space:]]+.*?;|root {$webRoot};|g' {$existingSiteFile}
-            ";
-            $ssh->exec($updateNginxCmd);
+        // Check if Let's Encrypt certificate exists for this domain or slug
+        $hasExistingCert = trim((string) $ssh->exec("{$sudoPrefix} test -f /etc/letsencrypt/live/{$cleanDomain}/fullchain.pem && echo 'yes' || echo 'no'")) === 'yes';
+        if (!$hasExistingCert) {
+            $hasExistingCert = trim((string) $ssh->exec("{$sudoPrefix} test -f /etc/letsencrypt/live/{$cleanSlug}/fullchain.pem && echo 'yes' || echo 'no'")) === 'yes';
+            $certName = $hasExistingCert ? $cleanSlug : $cleanDomain;
         } else {
-            $logs[] = "Creating new Nginx virtual host for {$cleanDomain}...";
+            $certName = $cleanDomain;
+        }
+
+        if ($hasExistingCert) {
+            $logs[] = "Found existing Let's Encrypt SSL certificate for {$certName}. Activating HTTPS...";
             $vhostConfig = "server {\n"
                 . "    listen 80;\n"
                 . "    listen [::]:80;\n"
                 . "    server_name {$cleanDomain} www.{$cleanDomain};\n"
+                . "    location ^~ /.well-known/acme-challenge/ { root {$webRoot}; }\n"
+                . "    location / { return 301 https://\$host\$request_uri; }\n"
+                . "}\n\n"
+                . "server {\n"
+                . "    listen 443 ssl;\n"
+                . "    listen [::]:443 ssl;\n"
+                . "    server_name {$cleanDomain} www.{$cleanDomain};\n"
                 . "    root {$webRoot};\n"
                 . "    index index.php index.html index.htm;\n"
                 . "    charset utf-8;\n"
+                . "\n"
+                . "    ssl_certificate /etc/letsencrypt/live/{$certName}/fullchain.pem;\n"
+                . "    ssl_certificate_key /etc/letsencrypt/live/{$certName}/privkey.pem;\n"
                 . "\n"
                 . "    location / {\n"
                 . "        try_files \$uri \$uri/ /index.php?\$query_string;\n"
@@ -1823,12 +1835,48 @@ BASH;
                 . "        deny all;\n"
                 . "    }\n"
                 . "}\n";
-
-            $tmpFile = "/tmp/vhost_" . time() . ".conf";
-            $safeVhost = escapeshellarg($vhostConfig);
-            $ssh->exec("echo {$safeVhost} > {$tmpFile}");
-            $ssh->exec("{$sudoPrefix} cp {$tmpFile} {$siteConfigPath} && rm -f {$tmpFile}");
+        } else {
+            $logs[] = "Configuring HTTP virtual host for {$cleanDomain}...";
+            $vhostConfig = "server {\n"
+                . "    listen 80;\n"
+                . "    listen [::]:80;\n"
+                . "    server_name {$cleanDomain} www.{$cleanDomain};\n"
+                . "    root {$webRoot};\n"
+                . "    index index.php index.html index.htm;\n"
+                . "    charset utf-8;\n"
+                . "\n"
+                . "    location ^~ /.well-known/acme-challenge/ { root {$webRoot}; }\n"
+                . "\n"
+                . "    location / {\n"
+                . "        try_files \$uri \$uri/ /index.php?\$query_string;\n"
+                . "    }\n"
+                . "\n"
+                . "    location = /favicon.ico { access_log off; log_not_found off; }\n"
+                . "    location = /robots.txt  { access_log off; log_not_found off; }\n"
+                . "\n"
+                . "    error_page 404 /index.php;\n"
+                . "\n"
+                . "    client_max_body_size 30M;\n"
+                . "\n"
+                . "    location ~ \\.php$ {\n"
+                . "        fastcgi_pass unix:{$fpmSock};\n"
+                . "        fastcgi_param SCRIPT_FILENAME \$realpath_root\$fastcgi_script_name;\n"
+                . "        include fastcgi_params;\n"
+                . "        fastcgi_buffer_size 32k;\n"
+                . "        fastcgi_buffers 16 16k;\n"
+                . "        fastcgi_busy_buffers_size 32k;\n"
+                . "    }\n"
+                . "\n"
+                . "    location ~ /\\.(?!well-known).* {\n"
+                . "        deny all;\n"
+                . "    }\n"
+                . "}\n";
         }
+
+        $b64 = base64_encode($vhostConfig);
+        $tmpFile = "/tmp/vhost_" . time() . ".conf";
+        $ssh->exec("echo '{$b64}' | base64 -d > {$tmpFile}");
+        $ssh->exec("{$sudoPrefix} cp {$tmpFile} {$siteConfigPath} && rm -f {$tmpFile}");
 
         // Symlink to sites-enabled
         $ssh->exec("{$sudoPrefix} ln -sf {$siteConfigPath} {$enabledLink}");
@@ -1846,7 +1894,7 @@ BASH;
                 $hasCertbot = trim((string) $ssh->exec("command -v certbot >/dev/null 2>&1 && echo 'yes' || echo 'no'")) === 'yes';
                 if ($hasCertbot) {
                     $logs[] = "Issuing Let's Encrypt SSL certificate via Certbot for {$cleanDomain}...";
-                    $sslCmd = "{$sudoPrefix} certbot --nginx -d {$cleanDomain} --non-interactive --agree-tos -m admin@{$cleanDomain} --redirect 2>&1";
+                    $sslCmd = "{$sudoPrefix} certbot --nginx -d {$cleanDomain} --non-interactive --agree-tos -m admin@{$cleanDomain} --redirect 2>&1 || {$sudoPrefix} certbot --nginx -d {$cleanDomain} --non-interactive --agree-tos --register-unsafely-without-email --redirect 2>&1";
                     $sslOut = trim((string) $ssh->exec($sslCmd));
                     $logs[] = $sslOut ?: "SSL Certificate installed and HTTPS active.";
                 } else {
