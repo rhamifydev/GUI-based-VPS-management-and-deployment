@@ -3427,4 +3427,275 @@ BASH;
             'output' => implode("\n", array_filter($logs)),
         ]);
     }
+
+    /**
+     * Handle incoming continuous deployment webhook (GitHub, GitLab, Bitbucket, cURL).
+     */
+    public function handleDeployWebhook(Request $request, $id)
+    {
+        @set_time_limit(300);
+
+        $project = Project::find($id);
+        if (!$project) {
+            return response()->json(['success' => false, 'message' => 'Project not found.'], 404);
+        }
+
+        // Validate secret token from Query string, Custom Header, or Bearer Auth
+        $token = $request->query('token') 
+            ?: $request->header('X-Deploy-Token') 
+            ?: $request->bearerToken();
+
+        if (empty($project->deploy_token) || !hash_equals((string) $project->deploy_token, (string) $token)) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized deploy token.'], 403);
+        }
+
+        // Handle GET requests as a health ping
+        if ($request->isMethod('get')) {
+            return response()->json([
+                'success' => true,
+                'message' => "Deploy webhook is active and ready for {$project->name}",
+                'project_id' => $project->id,
+                'project_name' => $project->name,
+                'tracking_branch' => $project->branch ?: 'main',
+                'auto_deploy_enabled' => (bool) ($project->auto_deploy ?? true),
+            ]);
+        }
+
+        // Handle GitHub ping event
+        if ($request->header('X-GitHub-Event') === 'ping') {
+            return response()->json([
+                'success' => true,
+                'message' => 'GitHub webhook ping received successfully!',
+            ]);
+        }
+
+        // Check if auto-deploy is paused
+        if (isset($project->auto_deploy) && !$project->auto_deploy) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Auto-deploy is disabled for this project.',
+            ], 200);
+        }
+
+        // Validate branch filter if provided by GitHub payload
+        $ref = $request->input('ref');
+        $targetBranch = $project->branch ?: 'main';
+        if (!empty($ref)) {
+            $pushedBranch = str_replace('refs/heads/', '', $ref);
+            if ($pushedBranch !== $targetBranch) {
+                return response()->json([
+                    'success' => false,
+                    'message' => "Ignored push to branch '{$pushedBranch}'. This project is tracking '{$targetBranch}'.",
+                ], 200);
+            }
+        }
+
+        $server = $project->server ?? Server::where('ip', $project->ip)->first();
+        if (!$server || !$server->is_active) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Host server is offline or unavailable.',
+            ], 503);
+        }
+
+        $ssh = new SSH2($server->ip, (int) ($server->port ?: 22), 15);
+        $ssh->setTimeout(120);
+        $authenticated = false;
+
+        if ($server->auth_method === 'key' || $server->auth_method === 'auto') {
+            $resolvedKey = $this->resolveSshKey($server->key_path, $server->key_content);
+            if ($resolvedKey) {
+                try {
+                    $key = $this->loadPrivateKeyFast($resolvedKey['content'], $server->key_passphrase ?: null);
+                    if ($key && $ssh->login($server->user, $key)) {
+                        $authenticated = true;
+                    }
+                } catch (\Throwable $e) {}
+            }
+        }
+
+        if (!$authenticated && (!empty($server->password) || $server->auth_method === 'password')) {
+            if (!empty($server->password) && $ssh->login($server->user, $server->password)) {
+                $authenticated = true;
+            }
+        }
+
+        if (!$authenticated) {
+            return response()->json(['success' => false, 'message' => 'SSH connection failed.'], 500);
+        }
+
+        $startTime = microtime(true);
+        $safePath = escapeshellarg($project->path);
+        $safeBranch = escapeshellarg($targetBranch);
+
+        $deployOutput = trim((string) $ssh->exec("
+            cd {$safePath}
+            git fetch origin 2>&1
+            git checkout {$safeBranch} 2>&1
+            git pull origin {$safeBranch} 2>&1
+            if [ -f composer.json ] && command -v composer >/dev/null 2>&1; then
+                composer install --no-interaction --prefer-dist --optimize-autoloader 2>&1
+            fi
+            if [ -f artisan ]; then
+                if [ -f .env ] && grep -q 'DB_CONNECTION=sqlite' .env 2>/dev/null; then
+                    mkdir -p database && touch database/database.sqlite
+                fi
+                php artisan migrate --force 2>&1
+                php artisan storage:link 2>/dev/null
+                php artisan optimize:clear 2>&1
+                chmod -R 775 storage bootstrap/cache 2>/dev/null
+            fi
+            if [ -f package.json ] && command -v npm >/dev/null 2>&1; then
+                npm install --prefer-offline 2>&1 && npm run build 2>&1
+            fi
+        "));
+
+        // Extract latest commit info
+        $commitInfo = trim((string) $ssh->exec("cd {$safePath} && git log -1 --pretty=format:'%h|%s' 2>/dev/null"));
+        $parts = explode('|', $commitInfo, 2);
+        $commitHash = !empty($parts[0]) ? $parts[0] : $project->commit;
+        $commitMsg = !empty($parts[1]) ? $parts[1] : "Auto-deployed via webhook ({$targetBranch})";
+        $duration = round(microtime(true) - $startTime, 1) . 's';
+
+        $project->update([
+            'branch' => $targetBranch,
+            'commit' => $commitHash,
+            'commit_message' => $commitMsg,
+            'last_deploy_time' => now()->toIso8601String(),
+            'deploy_duration' => $duration,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => "Successfully auto-deployed {$project->name} ({$commitHash}) in {$duration}!",
+            'commit' => $commitHash,
+            'commit_message' => $commitMsg,
+            'duration' => $duration,
+            'output' => $deployOutput,
+            'project' => $project->fresh(),
+        ]);
+    }
+
+    /**
+     * Regenerate secret deployment webhook token for project.
+     */
+    public function regenerateWebhookToken(Request $request, $id)
+    {
+        $project = Project::where('user_id', auth()->id())->where('id', $id)->first();
+        if (!$project) {
+            return response()->json(['success' => false, 'message' => 'Project not found.'], 404);
+        }
+
+        $newToken = 'whk_' . bin2hex(random_bytes(16));
+        $project->update(['deploy_token' => $newToken]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Deployment token regenerated successfully!',
+            'project' => $project->fresh(),
+            'webhook_url' => $project->webhook_url,
+        ]);
+    }
+
+    /**
+     * Toggle auto-deploy on/off for project.
+     */
+    public function toggleAutoDeploy(Request $request, $id)
+    {
+        $project = Project::where('user_id', auth()->id())->where('id', $id)->first();
+        if (!$project) {
+            return response()->json(['success' => false, 'message' => 'Project not found.'], 404);
+        }
+
+        $newState = $request->has('auto_deploy') ? (bool) $request->input('auto_deploy') : !$project->auto_deploy;
+        $project->update(['auto_deploy' => $newState]);
+
+        return response()->json([
+            'success' => true,
+            'message' => $newState ? 'Auto-deploy enabled.' : 'Auto-deploy paused.',
+            'project' => $project->fresh(),
+        ]);
+    }
+
+    /**
+     * Install webhook directly to GitHub repository using stored GitHub token.
+     */
+    public function installGitHubWebhook(Request $request, $id)
+    {
+        $project = Project::where('user_id', auth()->id())->where('id', $id)->first();
+        if (!$project) {
+            return response()->json(['success' => false, 'message' => 'Project not found.'], 404);
+        }
+
+        $user = auth()->user();
+        $token = $request->input('token') ?: ($user?->github_token ?: env('GITHUB_TOKEN'));
+
+        if (empty($token)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No GitHub personal access token available. Please link your GitHub account or copy the webhook URL manually into GitHub.',
+            ], 400);
+        }
+
+        $gitUrl = $project->git_url;
+        if (empty($gitUrl)) {
+            return response()->json(['success' => false, 'message' => 'No GitHub repository URL associated with this project.'], 400);
+        }
+
+        if (!preg_match('#github\.com[:/]([^/]+)/([^/\.]+)(?:\.git)?#i', $gitUrl, $matches)) {
+            return response()->json(['success' => false, 'message' => 'Could not determine owner/repository from git URL.'], 400);
+        }
+
+        $owner = $matches[1];
+        $repo = $matches[2];
+        $webhookUrl = $project->webhook_url;
+
+        // Call GitHub API to create webhook
+        $ch = curl_init("https://api.github.com/repos/{$owner}/{$repo}/hooks");
+        $payload = json_encode([
+            'name' => 'web',
+            'active' => true,
+            'events' => ['push'],
+            'config' => [
+                'url' => $webhookUrl,
+                'content_type' => 'json',
+                'insecure_ssl' => '0',
+            ],
+        ]);
+
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            'User-Agent: VPSDeploy-Manager',
+            'Authorization: Bearer ' . $token,
+            'Accept: application/vnd.github.v3+json',
+            'Content-Type: application/json',
+        ]);
+
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        $resData = json_decode($response, true);
+
+        if ($httpCode === 201) {
+            return response()->json([
+                'success' => true,
+                'message' => "Successfully installed Auto-Deploy webhook to GitHub repository {$owner}/{$repo}!",
+                'github_hook_id' => $resData['id'] ?? null,
+            ]);
+        } elseif ($httpCode === 422 && str_contains(json_encode($resData), 'already exists')) {
+            return response()->json([
+                'success' => true,
+                'message' => "A webhook already exists on {$owner}/{$repo}. Auto-deploy is ready!",
+            ]);
+        } else {
+            return response()->json([
+                'success' => false,
+                'message' => $resData['message'] ?? "GitHub API returned status {$httpCode}",
+                'details' => $resData,
+            ], 400);
+        }
+    }
 }

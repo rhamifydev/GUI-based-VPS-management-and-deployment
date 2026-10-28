@@ -35,6 +35,7 @@ class Project extends Model
         'last_visited',
         'lastVisited',
         'last_deploy_human',
+        'webhook_url',
     ];
 
     /**
@@ -49,10 +50,35 @@ class Project extends Model
             'key_content' => 'encrypted',
             'key_passphrase' => 'encrypted',
             'is_connected' => 'boolean',
+            'auto_deploy' => 'boolean',
             'latency_ms' => 'integer',
             'last_auth_check_at' => 'datetime',
             'last_visited_timestamp' => 'integer',
         ];
+    }
+
+    protected static function booted(): void
+    {
+        static::creating(function (Project $project) {
+            if (empty($project->deploy_token)) {
+                $project->deploy_token = 'whk_' . bin2hex(random_bytes(16));
+            }
+        });
+    }
+
+    /**
+     * Generate the complete public deployment webhook URL for this project.
+     */
+    public function getWebhookUrlAttribute(): string
+    {
+        if (empty($this->deploy_token)) {
+            $token = 'whk_' . bin2hex(random_bytes(16));
+            $this->updateQuietly(['deploy_token' => $token]);
+            $this->deploy_token = $token;
+        }
+
+        $baseUrl = config('app.url') ?: url('/');
+        return rtrim($baseUrl, '/') . "/api/webhooks/deploy/{$this->id}?token=" . $this->deploy_token;
     }
 
     public function user(): BelongsTo

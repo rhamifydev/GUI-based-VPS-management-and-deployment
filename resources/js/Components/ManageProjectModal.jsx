@@ -50,6 +50,10 @@ export default function ManageProjectModal({
     const [alertMessage, setAlertMessage] = useState(null); // { type, text }
     const [executionLogs, setExecutionLogs] = useState([]);
     const [copiedIp, setCopiedIp] = useState(false);
+    const [copiedWebhook, setCopiedWebhook] = useState(false);
+    const [isInstallingWebhook, setIsInstallingWebhook] = useState(false);
+    const [isRegeneratingToken, setIsRegeneratingToken] = useState(false);
+    const [autoDeployEnabled, setAutoDeployEnabled] = useState(project.auto_deploy ?? true);
 
     useEffect(() => {
         if (project) {
@@ -57,6 +61,7 @@ export default function ManageProjectModal({
             setName(project.name || '');
             setBranch(project.branch || 'main');
             setDescription(project.description || '');
+            setAutoDeployEnabled(project.auto_deploy ?? true);
             setAlertMessage(null);
             setExecutionLogs([]);
             setShowSudoInput(false);
@@ -71,6 +76,87 @@ export default function ManageProjectModal({
         navigator.clipboard.writeText(project.ip);
         setCopiedIp(true);
         setTimeout(() => setCopiedIp(false), 2000);
+    };
+
+    const handleCopyWebhook = () => {
+        const url = project.webhook_url || `${window.location.origin}/api/webhooks/deploy/${project.id}?token=${project.deploy_token || ''}`;
+        navigator.clipboard.writeText(url);
+        setCopiedWebhook(true);
+        setTimeout(() => setCopiedWebhook(false), 2000);
+    };
+
+    const handleToggleAutoDeploy = async () => {
+        try {
+            const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+            const res = await fetch(`/vps/projects/${project.id}/toggle-auto-deploy`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': csrfToken || '',
+                },
+                body: JSON.stringify({ auto_deploy: !autoDeployEnabled }),
+            });
+            const data = await res.json();
+            if (data.success) {
+                setAutoDeployEnabled(!autoDeployEnabled);
+                setAlertMessage({ type: 'success', text: data.message });
+                if (onProjectUpdated && data.project) onProjectUpdated(data.project);
+            }
+        } catch (e) {
+            setAlertMessage({ type: 'error', text: e.message });
+        }
+    };
+
+    const handleRegenerateToken = async () => {
+        if (!confirm('Are you sure you want to regenerate the deployment token? Any webhook currently configured in GitHub with the old token will need to be updated.')) return;
+        setIsRegeneratingToken(true);
+        try {
+            const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+            const res = await fetch(`/vps/projects/${project.id}/regenerate-webhook-token`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': csrfToken || '',
+                },
+            });
+            const data = await res.json();
+            if (data.success) {
+                setAlertMessage({ type: 'success', text: data.message });
+                if (onProjectUpdated && data.project) onProjectUpdated(data.project);
+            }
+        } catch (e) {
+            setAlertMessage({ type: 'error', text: e.message });
+        } finally {
+            setIsRegeneratingToken(false);
+        }
+    };
+
+    const handleInstallGitHubWebhook = async () => {
+        setIsInstallingWebhook(true);
+        setAlertMessage(null);
+        try {
+            const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+            const res = await fetch(`/vps/projects/${project.id}/install-github-webhook`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': csrfToken || '',
+                },
+            });
+            const data = await res.json();
+            if (data.success) {
+                setAlertMessage({ type: 'success', text: data.message });
+            } else {
+                setAlertMessage({ type: 'error', text: data.message || 'Failed to install GitHub webhook.' });
+            }
+        } catch (e) {
+            setAlertMessage({ type: 'error', text: e.message });
+        } finally {
+            setIsInstallingWebhook(false);
+        }
     };
 
     const handleSave = async (e) => {
@@ -260,6 +346,19 @@ export default function ManageProjectModal({
                     >
                         <Sliders className="w-3.5 h-3.5 text-indigo-400" />
                         <span>Project Details</span>
+                    </button>
+
+                    <button
+                        type="button"
+                        onClick={() => setActiveTab('autodeploy')}
+                        className={`px-3.5 py-2 rounded-t-xl text-xs font-semibold flex items-center gap-2 border-b-2 transition-colors ${
+                            activeTab === 'autodeploy'
+                                ? 'text-purple-400 border-purple-400 bg-purple-950/20'
+                                : 'text-slate-400 border-transparent hover:text-slate-200'
+                        }`}
+                    >
+                        <GitBranch className="w-3.5 h-3.5 text-purple-400" />
+                        <span>Auto Deploy (Webhook)</span>
                     </button>
 
                     <button
@@ -495,6 +594,122 @@ export default function ManageProjectModal({
                                     placeholder="Add notes about this workload..."
                                     className="w-full px-3.5 py-2.5 bg-[#050811] border border-slate-800 rounded-xl text-white text-xs focus:ring-1 focus:ring-indigo-500"
                                 />
+                            </div>
+                        </div>
+                    )}
+
+                    {/* TAB: AUTO DEPLOY (WEBHOOK) */}
+                    {activeTab === 'autodeploy' && (
+                        <div className="space-y-4">
+                            {/* Status Header */}
+                            <div className="p-3.5 bg-[#050811] border border-slate-800 rounded-xl flex items-center justify-between gap-3">
+                                <div className="space-y-0.5">
+                                    <div className="text-xs font-semibold text-white flex items-center gap-2">
+                                        <div className={`w-2 h-2 rounded-full ${autoDeployEnabled ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'}`} />
+                                        <span>Continuous Deployment Status:</span>
+                                        <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold ${
+                                            autoDeployEnabled ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' : 'bg-slate-800 text-slate-400'
+                                        }`}>
+                                            {autoDeployEnabled ? 'ACTIVE' : 'PAUSED'}
+                                        </span>
+                                    </div>
+                                    <p className="text-[11px] text-slate-400">
+                                        Every <code className="text-purple-300 font-mono">git push</code> to <strong className="text-white">{project.branch || 'main'}</strong> triggers an automatic build & deploy without any manual work.
+                                    </p>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={handleToggleAutoDeploy}
+                                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors shrink-0 ${
+                                        autoDeployEnabled 
+                                            ? 'bg-amber-950/40 hover:bg-amber-900/50 text-amber-300 border border-amber-800/60'
+                                            : 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                                    }`}
+                                >
+                                    {autoDeployEnabled ? 'Pause Auto-Deploy' : 'Enable Auto-Deploy'}
+                                </button>
+                            </div>
+
+                            {/* Webhook Payload URL Box */}
+                            <div className="space-y-1.5">
+                                <div className="flex items-center justify-between">
+                                    <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+                                        <Key className="w-3.5 h-3.5 text-purple-400" />
+                                        <span>Secret Webhook Payload URL</span>
+                                    </label>
+                                    <button
+                                        type="button"
+                                        onClick={handleRegenerateToken}
+                                        disabled={isRegeneratingToken}
+                                        className="text-[11px] text-slate-400 hover:text-slate-200 flex items-center gap-1 transition-colors"
+                                    >
+                                        <RefreshCw className={`w-3 h-3 ${isRegeneratingToken ? 'animate-spin' : ''}`} />
+                                        <span>Regenerate Secret</span>
+                                    </button>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <input
+                                        type="text"
+                                        readOnly
+                                        value={project.webhook_url || `${window.location.origin}/api/webhooks/deploy/${project.id}?token=${project.deploy_token || ''}`}
+                                        className="w-full px-3.5 py-2.5 bg-[#050811] border border-slate-800 rounded-xl text-purple-300 font-mono text-xs select-all focus:outline-none"
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={handleCopyWebhook}
+                                        className="px-3.5 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold transition-colors flex items-center gap-1.5 shrink-0 shadow-lg shadow-purple-600/20"
+                                    >
+                                        {copiedWebhook ? (
+                                            <>
+                                                <Check className="w-3.5 h-3.5 text-white" />
+                                                <span>Copied!</span>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Copy className="w-3.5 h-3.5" />
+                                                <span>Copy URL</span>
+                                            </>
+                                        )}
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* 1-Click Install to GitHub */}
+                            {project.git_url && project.git_url.includes('github.com') && (
+                                <div className="p-3.5 bg-gradient-to-r from-purple-950/30 via-slate-900 to-slate-900 border border-purple-500/30 rounded-xl flex items-center justify-between gap-3">
+                                    <div>
+                                        <div className="text-xs font-semibold text-white flex items-center gap-2">
+                                            <span>⚡ 1-Click GitHub Integration</span>
+                                        </div>
+                                        <p className="text-[11px] text-slate-400 mt-0.5">
+                                            Automatically attach this webhook to your GitHub repository <code className="text-purple-300 font-mono">{project.name}</code>.
+                                        </p>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={handleInstallGitHubWebhook}
+                                        disabled={isInstallingWebhook}
+                                        className="px-3.5 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white text-xs font-semibold transition-colors flex items-center gap-1.5 shrink-0 shadow-md shadow-purple-600/20"
+                                    >
+                                        {isInstallingWebhook ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5 fill-white" />}
+                                        <span>{isInstallingWebhook ? 'Installing...' : 'Install to GitHub'}</span>
+                                    </button>
+                                </div>
+                            )}
+
+                            {/* Setup Instructions Card */}
+                            <div className="p-3.5 bg-[#050811] border border-slate-800 rounded-xl space-y-2">
+                                <div className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
+                                    <span>📋 How to setup in GitHub (Manual Method):</span>
+                                </div>
+                                <ol className="list-decimal list-inside space-y-1.5 text-[11px] text-slate-400 leading-relaxed">
+                                    <li>Open your repository on <strong>GitHub</strong> ➔ click <strong>Settings</strong> (gear icon).</li>
+                                    <li>In the left sidebar, click <strong>Webhooks</strong> ➔ click <strong>Add webhook</strong>.</li>
+                                    <li>Paste the <strong>Secret Webhook Payload URL</strong> above into the <code className="text-purple-300 font-mono">Payload URL</code> field.</li>
+                                    <li>Set <code className="text-slate-300 font-mono">Content type</code> to <strong className="text-purple-300">application/json</strong>.</li>
+                                    <li>Under <em>"Which events would you like to trigger this webhook?"</em>, keep <strong className="text-white">Just the push event</strong> selected.</li>
+                                    <li>Click <strong className="text-emerald-400">Add webhook</strong>. GitHub will send a test ping, and every push will deploy automatically!</li>
+                                </ol>
                             </div>
                         </div>
                     )}

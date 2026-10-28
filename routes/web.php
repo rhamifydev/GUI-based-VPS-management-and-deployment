@@ -52,6 +52,9 @@ Route::middleware('auth')->group(function () {
     Route::patch('/vps/projects/{id}', [VpsConnectionController::class, 'updateProject'])->name('vps.projects.update');
     Route::post('/vps/projects/{id}/pull', [VpsConnectionController::class, 'pullProjectChanges'])->name('vps.projects.pull');
     Route::post('/vps/projects/{id}/clear-cache', [VpsConnectionController::class, 'clearProjectCache'])->name('vps.projects.clear-cache');
+    Route::post('/vps/projects/{id}/regenerate-webhook-token', [VpsConnectionController::class, 'regenerateWebhookToken'])->name('vps.projects.regenerate-webhook-token');
+    Route::post('/vps/projects/{id}/toggle-auto-deploy', [VpsConnectionController::class, 'toggleAutoDeploy'])->name('vps.projects.toggle-auto-deploy');
+    Route::post('/vps/projects/{id}/install-github-webhook', [VpsConnectionController::class, 'installGitHubWebhook'])->name('vps.projects.install-github-webhook');
 
     // Remote project file management & in-browser editor
     Route::post('/vps/projects/{id}/files', [VpsConnectionController::class, 'listProjectFiles'])->name('vps.projects.files');
