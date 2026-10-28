@@ -24,9 +24,13 @@ import {
 
 export default function AuthenticatedLayout({ children }) {
     const user = usePage().props.auth.user;
+    const pageProps = usePage().props;
     const [mobileOpen, setMobileOpen] = useState(false);
     const [isPageLoading, setIsPageLoading] = useState(false);
     const [connectedServer, setConnectedServer] = useState(() => {
+        if (pageProps.server) return pageProps.server;
+        if (pageProps.servers?.length > 0) return pageProps.servers.find(s => s.is_active) || pageProps.servers[0];
+        if (pageProps.initialServers?.length > 0) return pageProps.initialServers.find(s => s.is_active) || pageProps.initialServers[0];
         try {
             const saved = localStorage.getItem('vps_connected_server');
             return saved ? JSON.parse(saved) : null;
@@ -34,6 +38,25 @@ export default function AuthenticatedLayout({ children }) {
             return null;
         }
     });
+
+    // Synchronize connected server directly with fresh backend page props
+    useEffect(() => {
+        let freshServer = null;
+        if (pageProps.server) {
+            freshServer = pageProps.server;
+        } else if (pageProps.servers && pageProps.servers.length > 0) {
+            freshServer = pageProps.servers.find(s => s.is_active) || pageProps.servers[0];
+        } else if (pageProps.initialServers && pageProps.initialServers.length > 0) {
+            freshServer = pageProps.initialServers.find(s => s.is_active) || pageProps.initialServers[0];
+        }
+
+        if (freshServer) {
+            setConnectedServer(freshServer);
+            try {
+                localStorage.setItem('vps_connected_server', JSON.stringify(freshServer));
+            } catch (e) {}
+        }
+    }, [pageProps.server, pageProps.servers, pageProps.initialServers]);
 
     useEffect(() => {
         const unregisterStart = router.on('start', () => setIsPageLoading(true));
@@ -57,7 +80,9 @@ export default function AuthenticatedLayout({ children }) {
             } catch (e) {}
         };
         window.addEventListener('storage', handleStorage);
-        // Also poll briefly or listen to custom event if within same window
+        window.addEventListener('vps_server_updated', (e) => {
+            if (e.detail) setConnectedServer(e.detail);
+        });
         const interval = setInterval(handleStorage, 2000);
         return () => {
             window.removeEventListener('storage', handleStorage);

@@ -61,7 +61,7 @@ class VpsConnectionController extends Controller
                     $keyContent = $resolvedKey['content'];
 
                     try {
-                        $key = PublicKeyLoader::load($keyContent, !empty($passphrase) ? $passphrase : null);
+                        $key = $this->loadPrivateKeyFast($keyContent, !empty($passphrase) ? $passphrase : null);
                     } catch (\phpseclib4\Exception\PasswordNeededException $e) {
                         return response()->json([
                             'success' => false,
@@ -421,8 +421,15 @@ BASH;
 
                 Project::where('user_id', auth()->id())
                     ->where('ip', $ip)
-                    ->whereNull('server_id')
-                    ->update(['server_id' => $dbServer->id]);
+                    ->update([
+                        'server_id' => $dbServer->id,
+                        'user' => $user,
+                        'port' => $port,
+                        'auth_method' => $authMethod,
+                        'key_path' => $activeKeyPath,
+                        'password' => !empty($validated['password']) ? $validated['password'] : null,
+                        'key_passphrase' => !empty($passphrase) ? $passphrase : null,
+                    ]);
             }
 
             return response()->json([
@@ -498,7 +505,7 @@ BASH;
             if ($authMethod === 'auto' || $authMethod === 'key') {
                 $resolvedKey = $this->resolveSshKey($validated['key_path'] ?? null, $validated['key_content'] ?? null);
                 if ($resolvedKey) {
-                    $key = PublicKeyLoader::load($resolvedKey['content'], !empty($passphrase) ? $passphrase : null);
+                    $key = $this->loadPrivateKeyFast($resolvedKey['content'], !empty($passphrase) ? $passphrase : null);
                     if ($ssh->login($user, $key)) {
                         $authenticated = true;
                     }
@@ -570,6 +577,14 @@ BASH;
             }
             if ($proj->server_id !== $server->id) {
                 $proj->update(['server_id' => $server->id]);
+            }
+            // Universal node connection: keep project user & server user universally identical
+            if (!empty($server->user) && $proj->user !== $server->user) {
+                $proj->update([
+                    'user' => $server->user,
+                    'port' => $server->port ?: 22,
+                    'auth_method' => $server->auth_method,
+                ]);
             }
         }
 
@@ -753,17 +768,12 @@ BASH;
                 if ($server->auth_method === 'key' || $server->auth_method === 'auto') {
                     $resolvedKey = $this->resolveSshKey($server->key_path, $server->key_content);
                     if ($resolvedKey) {
-                        $isEncrypted = $this->isPrivateKeyEncrypted($resolvedKey['content']);
-
-                        // Never perform heavy pure-PHP Blowfish KDF (~16s) inside telemetry polling requests
-                        if (!$isEncrypted) {
-                            try {
-                                $key = PublicKeyLoader::load($resolvedKey['content'], $server->key_passphrase ?: null);
-                                if ($ssh->login($user, $key)) {
-                                    $authenticated = true;
-                                }
-                            } catch (\Throwable $e) {}
-                        }
+                        try {
+                            $key = $this->loadPrivateKeyFast($resolvedKey['content'], $server->key_passphrase ?: null);
+                            if ($ssh->login($user, $key)) {
+                                $authenticated = true;
+                            }
+                        } catch (\Throwable $e) {}
                     }
                 }
 
@@ -962,8 +972,12 @@ BASH;
 
         Project::where('user_id', auth()->id())
             ->where('ip', $ip)
-            ->whereNull('server_id')
-            ->update(['server_id' => $server->id]);
+            ->update([
+                'server_id' => $server->id,
+                'user' => $server->user,
+                'port' => $server->port,
+                'auth_method' => $server->auth_method,
+            ]);
 
         return response()->json([
             'success' => true,
@@ -1006,6 +1020,8 @@ BASH;
 
         if (!empty($validated['name'])) {
             $updates['name'] = trim($validated['name']);
+        } elseif (empty($server->name) || str_contains($server->name, '@')) {
+            $updates['name'] = trim($validated['user']) . '@' . $server->ip;
         }
 
         if (array_key_exists('password', $validated)) {
@@ -1197,7 +1213,7 @@ BASH;
                 $resolvedKey = $this->resolveSshKey($server->key_path, $server->key_content);
                 if ($resolvedKey) {
                     try {
-                        $key = PublicKeyLoader::load($resolvedKey['content'], $server->key_passphrase ?: null);
+                        $key = $this->loadPrivateKeyFast($resolvedKey['content'], $server->key_passphrase ?: null);
                         if ($ssh->login($user, $key)) {
                             $authenticated = true;
                         } else {
@@ -1354,9 +1370,9 @@ BASH;
             'name' => $validated['name'],
             'description' => $validated['description'] ?? null,
             'ip' => $validated['ip'],
-            'port' => !empty($validated['port']) ? (int) $validated['port'] : 22,
-            'user' => $validated['user'] ?? 'root',
-            'auth_method' => $validated['auth_method'] ?? 'auto',
+            'port' => !empty($validated['port']) ? (int) $validated['port'] : ($server ? $server->port : 22),
+            'user' => $server ? $server->user : ($validated['user'] ?? 'root'),
+            'auth_method' => $server ? $server->auth_method : ($validated['auth_method'] ?? 'auto'),
             'os' => $validated['os'] ?? 'Linux Server',
             'type' => $validated['type'] ?? 'linux',
             'branch' => $validated['branch'] ?? 'main',
@@ -1497,7 +1513,7 @@ BASH;
             'key_passphrase' => 'nullable|string',
         ]);
 
-        if (isset($validated['user'])) $project->user = $validated['user'];
+        if (isset($validated['user'])) $project->user = trim($validated['user']);
         if (isset($validated['auth_method'])) $project->auth_method = $validated['auth_method'];
         if (isset($validated['password'])) $project->password = $validated['password'];
         if (isset($validated['key_path'])) $project->key_path = $validated['key_path'];
@@ -1505,6 +1521,42 @@ BASH;
         if (isset($validated['key_passphrase'])) $project->key_passphrase = $validated['key_passphrase'];
 
         $project->save();
+
+        // Enforce universal connection per node: cascade to server node and all sibling projects
+        $server = $project->server ?: Server::where('user_id', auth()->id())->where('ip', $project->ip)->first();
+        if ($server) {
+            $serverUpdates = [];
+            if (isset($validated['user'])) {
+                $serverUpdates['user'] = trim($validated['user']);
+                if (empty($server->name) || str_contains($server->name, '@')) {
+                    $serverUpdates['name'] = trim($validated['user']) . '@' . $server->ip;
+                }
+            }
+            if (isset($validated['auth_method'])) $serverUpdates['auth_method'] = $validated['auth_method'];
+            if (array_key_exists('password', $validated)) $serverUpdates['password'] = $validated['password'];
+            if (array_key_exists('key_path', $validated)) $serverUpdates['key_path'] = $validated['key_path'];
+            if (array_key_exists('key_content', $validated)) $serverUpdates['key_content'] = $validated['key_content'];
+            if (array_key_exists('key_passphrase', $validated)) $serverUpdates['key_passphrase'] = $validated['key_passphrase'];
+
+            if (!empty($serverUpdates)) {
+                $server->update($serverUpdates);
+            }
+        }
+
+        Project::where('user_id', auth()->id())
+            ->where('id', '!=', $project->id)
+            ->where(function ($q) use ($project, $server) {
+                if ($server) $q->where('server_id', $server->id);
+                $q->orWhere('ip', $project->ip);
+            })
+            ->update(array_filter([
+                'user' => $project->user,
+                'auth_method' => $project->auth_method,
+                'password' => $project->password,
+                'key_path' => $project->key_path,
+                'key_content' => $project->key_content,
+                'key_passphrase' => $project->key_passphrase,
+            ], fn($v) => !is_null($v)));
 
         // Immediately verify new credentials
         $authResult = $this->performAuthCheck($project);
@@ -1582,7 +1634,7 @@ BASH;
                 $resolvedKey = $this->resolveSshKey($project->key_path, $project->key_content);
                 if ($resolvedKey) {
                     try {
-                        $key = PublicKeyLoader::load($resolvedKey['content'], $project->key_passphrase ?: null);
+                        $key = $this->loadPrivateKeyFast($resolvedKey['content'], $project->key_passphrase ?: null);
                         if ($ssh->login($user, $key)) {
                             $authenticated = true;
                         } else {
@@ -1792,7 +1844,7 @@ BASH;
             if ($authMethod === 'auto' || $authMethod === 'key') {
                 $resolvedKey = $this->resolveSshKey($keyPath, $keyContent);
                 if ($resolvedKey) {
-                    $key = PublicKeyLoader::load($resolvedKey['content'], !empty($passphrase) ? $passphrase : null);
+                    $key = $this->loadPrivateKeyFast($resolvedKey['content'], !empty($passphrase) ? $passphrase : null);
                     if ($ssh->login($user, $key)) {
                         $authenticated = true;
                     }
@@ -1912,9 +1964,29 @@ BASH;
         $candidates = [
             '~/.ssh/id_ed25519',
             '~/.ssh/id_rsa',
+            '~/.ssh/rhamify_store_actions',
             '~/.ssh/id_ecdsa',
             '~/.ssh/id_dsa',
         ];
+
+        // Also add any custom private key files in ~/.ssh/
+        $sshDir = $this->expandHomePath('~/.ssh');
+        if (is_dir($sshDir)) {
+            $files = @glob($sshDir . DIRECTORY_SEPARATOR . '*');
+            if ($files) {
+                foreach ($files as $f) {
+                    if (is_file($f)) {
+                        $bn = basename($f);
+                        if (!str_ends_with($bn, '.pub') && !str_starts_with($bn, 'known_hosts') && $bn !== 'config' && $bn !== 'authorized_keys') {
+                            $candPath = '~/.ssh/' . $bn;
+                            if (!in_array($candPath, $candidates)) {
+                                $candidates[] = $candPath;
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         foreach ($candidates as $cand) {
             $expanded = $this->expandHomePath($cand);
@@ -1971,5 +2043,401 @@ BASH;
             return $home . str_replace('/', DIRECTORY_SEPARATOR, $sub);
         }
         return $path;
+    }
+
+    /**
+     * Ultra-fast private key loader with native ssh-keygen acceleration and caching.
+     * Eliminates 50+ second Pure-PHP bcrypt-PBKDF CPU hangs.
+     */
+    private function loadPrivateKeyFast(string $keyContent, ?string $passphrase = null)
+    {
+        $passphrase = !empty($passphrase) ? trim($passphrase) : null;
+
+        // If not encrypted or no passphrase needed, load directly
+        if (!$this->isPrivateKeyEncrypted($keyContent) || empty($passphrase)) {
+            return PublicKeyLoader::load($keyContent);
+        }
+
+        $cacheKey = 'decrypted_key_' . md5($keyContent . '|' . $passphrase);
+        $cached = Cache::get($cacheKey);
+        if (!empty($cached)) {
+            try {
+                return PublicKeyLoader::load($cached);
+            } catch (\Throwable $e) {
+                Cache::forget($cacheKey);
+            }
+        }
+
+        // Fast native ssh-keygen decryption (1s vs 51s pure-PHP)
+        $tmp = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'tmp_key_' . bin2hex(random_bytes(8));
+        if (@file_put_contents($tmp, $keyContent) !== false) {
+            $cmd = sprintf('ssh-keygen -p -P %s -N "" -f %s 2>&1', escapeshellarg($passphrase), escapeshellarg($tmp));
+            @exec($cmd, $output, $code);
+            if ($code === 0 && file_exists($tmp)) {
+                $decrypted = @file_get_contents($tmp);
+                @unlink($tmp);
+                if (!empty($decrypted)) {
+                    Cache::put($cacheKey, $decrypted, now()->addDays(30));
+                    return PublicKeyLoader::load($decrypted);
+                }
+            }
+            if (file_exists($tmp)) {
+                @unlink($tmp);
+            }
+        }
+
+        // Fallback to pure PHP loader
+        $key = PublicKeyLoader::load($keyContent, $passphrase);
+        try {
+            $exported = $key->toString('OpenSSH');
+            Cache::put($cacheKey, $exported, now()->addDays(30));
+        } catch (\Throwable $e) {}
+
+        return $key;
+    }
+
+    /**
+     * Helper to establish authenticated SSH session for a project
+     */
+    private function getProjectSshConnection(Project $project): ?SSH2
+    {
+        $server = $project->server ?: Server::where('user_id', $project->user_id)->where('ip', $project->ip)->first();
+
+        $ip = trim($project->ip ?: ($server ? $server->ip : ''));
+        $port = (int) ($project->port ?: ($server ? $server->port : 22)) ?: 22;
+        $user = trim($project->user ?: ($server ? $server->user : 'root')) ?: 'root';
+        $authMethod = $project->auth_method ?: ($server ? $server->auth_method : 'auto');
+
+        if (empty($ip)) return null;
+
+        // Fast TCP probe (0.8s max timeout) so offline servers fail immediately without freezing PHP
+        $fp = @stream_socket_client("tcp://{$ip}:{$port}", $errno, $errstr, 0.8, STREAM_CLIENT_CONNECT);
+        if (!$fp) {
+            return null;
+        }
+        fclose($fp);
+
+        try {
+            $ssh = new SSH2($ip, $port, 5); // 5s connection timeout
+            $ssh->setTimeout(8); // 8s command execution timeout to avoid 30s hangs
+            $authenticated = false;
+
+            // 1. Try Key auth
+            if ($authMethod === 'key' || $authMethod === 'auto') {
+                $keyPath = $project->key_path ?: ($server ? $server->key_path : null);
+                $keyContent = $project->key_content ?: ($server ? $server->key_content : null);
+                $keyPassphrase = $project->key_passphrase ?: ($server ? $server->key_passphrase : null);
+
+                $resolvedKey = $this->resolveSshKey($keyPath, $keyContent);
+                if ($resolvedKey) {
+                    try {
+                        $key = $this->loadPrivateKeyFast($resolvedKey['content'], $keyPassphrase ?: null);
+                        if ($ssh->login($user, $key)) {
+                            $authenticated = true;
+                        }
+                    } catch (\Throwable $e) {}
+                }
+            }
+
+            // 2. Try Password auth
+            if (!$authenticated) {
+                $password = $project->password ?: ($server ? $server->password : null);
+                if (!empty($password)) {
+                    try {
+                        if ($ssh->login($user, $password)) {
+                            $authenticated = true;
+                        }
+                    } catch (\Throwable $e) {}
+                }
+            }
+
+            return $authenticated ? $ssh : null;
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
+    /**
+     * List all files and directories inside a project path on remote VPS (including hidden dotfiles)
+     */
+    public function listProjectFiles(Request $request, $id)
+    {
+        @set_time_limit(90);
+
+        $project = Project::where('user_id', auth()->id())->where('id', $id)->first();
+        if (!$project) {
+            return response()->json(['success' => false, 'message' => 'Project not found.'], 404);
+        }
+
+        $server = $project->server ?: Server::where('user_id', $project->user_id)->where('ip', $project->ip)->first();
+        if ($server && !$server->is_active) {
+            return response()->json(['success' => false, 'message' => "Server '{$server->name}' is powered off."], 400);
+        }
+
+        $ssh = $this->getProjectSshConnection($project);
+        if (!$ssh) {
+            return response()->json(['success' => false, 'message' => "Could not authenticate SSH session to {$project->ip}."], 401);
+        }
+
+        $basePath = rtrim(trim($project->path ?: '/var/www'), '/');
+        $requestedPath = trim($request->input('path', $basePath));
+        if (empty($requestedPath)) {
+            $requestedPath = $basePath;
+        }
+
+        $safeTarget = escapeshellarg($requestedPath);
+
+        // Ultra-fast single-shot directory scan (Python scandir or single stat/ls call)
+        $scanCmd = <<<BASH
+target={$safeTarget}
+if [ ! -d "\$target" ]; then
+    echo "ERROR: Directory does not exist"
+    exit 1
+fi
+cd "\$target" 2>/dev/null || exit 1
+pwd -P
+echo "===FILES==="
+if command -v python3 >/dev/null 2>&1; then
+    python3 -c '
+import os, sys, stat, datetime
+target = sys.argv[1]
+try:
+    entries = os.scandir(target)
+except Exception as e:
+    sys.exit(1)
+count = 0
+for e in entries:
+    if count >= 800:
+        break
+    count += 1
+    try:
+        is_dir = 1 if e.is_dir(follow_symlinks=False) else 0
+        size = 0
+        mtime = ""
+        try:
+            st = e.stat(follow_symlinks=False)
+            size = st.st_size if not is_dir else 0
+            mtime = datetime.datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M")
+        except Exception:
+            pass
+        print(f"{e.name}|{is_dir}|{size}|{mtime}")
+    except Exception:
+        pass
+' "\$target"
+elif command -v stat >/dev/null 2>&1 && stat -c "%n" . >/dev/null 2>&1; then
+    stat -c "%n|%F|%s|%y" .* * 2>/dev/null | head -n 800
+else
+    ls -la --time-style="+%Y-%m-%d %H:%M" 2>/dev/null | tail -n +2 | head -n 800
+fi
+BASH;
+
+        $rawOutput = (string) $ssh->exec($scanCmd);
+        if (str_contains($rawOutput, 'ERROR: Directory does not exist')) {
+            return response()->json([
+                'success' => false,
+                'message' => "Remote directory '{$requestedPath}' does not exist on server.",
+            ], 404);
+        }
+
+        $parts = explode('===FILES===', $rawOutput, 2);
+        $realPwd = trim($parts[0]);
+        $filesBody = isset($parts[1]) ? trim($parts[1]) : '';
+
+        $items = [];
+        $lines = explode("\n", $filesBody);
+        foreach ($lines as $line) {
+            $line = trim($line);
+            if (empty($line)) continue;
+
+            if (str_contains($line, '|')) {
+                $cols = explode('|', $line, 4);
+                $name = trim($cols[0]);
+                if ($name === '.' || $name === '..' || empty($name)) continue;
+
+                $typeCol = strtolower($cols[1] ?? '0');
+                $isDir = ($typeCol === '1' || str_contains($typeCol, 'dir'));
+                $bytes = (int) ($cols[2] ?? 0);
+                $mtime = trim($cols[3] ?? '');
+
+                // Clean date if timestamp has seconds or timezone
+                if (strlen($mtime) > 16) {
+                    $mtime = substr($mtime, 0, 16);
+                }
+
+                $ext = '';
+                if (!$isDir && str_contains($name, '.')) {
+                    $ext = strtolower(pathinfo($name, PATHINFO_EXTENSION));
+                }
+
+                $items[] = [
+                    'name' => $name,
+                    'path' => rtrim($realPwd, '/') . '/' . $name,
+                    'is_dir' => $isDir,
+                    'is_hidden' => str_starts_with($name, '.'),
+                    'size_bytes' => $bytes,
+                    'size_formatted' => $isDir ? '-' : $this->formatFileSize($bytes),
+                    'modified_at' => $mtime,
+                    'extension' => $ext,
+                ];
+            } elseif (preg_match('/^([drwxls\-]{10})\s+\d+\s+\S+\s+\S+\s+(\d+)\s+(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})\s+(.+)$/', $line, $m)) {
+                // Parsing standard ls -la fallback
+                $isDir = str_starts_with($m[1], 'd');
+                $bytes = (int) $m[2];
+                $mtime = $m[3];
+                $name = trim($m[4]);
+                if ($name === '.' || $name === '..' || empty($name)) continue;
+
+                $ext = '';
+                if (!$isDir && str_contains($name, '.')) {
+                    $ext = strtolower(pathinfo($name, PATHINFO_EXTENSION));
+                }
+
+                $items[] = [
+                    'name' => $name,
+                    'path' => rtrim($realPwd, '/') . '/' . $name,
+                    'is_dir' => $isDir,
+                    'is_hidden' => str_starts_with($name, '.'),
+                    'size_bytes' => $bytes,
+                    'size_formatted' => $isDir ? '-' : $this->formatFileSize($bytes),
+                    'modified_at' => $mtime,
+                    'extension' => $ext,
+                ];
+            }
+        }
+
+        // Sort: directories first, then alphabetically
+        usort($items, function ($a, $b) {
+            if ($a['is_dir'] !== $b['is_dir']) {
+                return $a['is_dir'] ? -1 : 1;
+            }
+            return strcasecmp($a['name'], $b['name']);
+        });
+
+        $parentPath = dirname($realPwd);
+        $isRoot = ($realPwd === '/' || $realPwd === $basePath);
+
+        return response()->json([
+            'success' => true,
+            'current_path' => $realPwd,
+            'base_path' => $basePath,
+            'parent_path' => $parentPath,
+            'is_root' => $isRoot,
+            'items' => $items,
+        ]);
+    }
+
+    /**
+     * Read a remote file's text content for in-browser editing
+     */
+    public function readProjectFile(Request $request, $id)
+    {
+        @set_time_limit(90);
+
+        $project = Project::where('user_id', auth()->id())->where('id', $id)->first();
+        if (!$project) {
+            return response()->json(['success' => false, 'message' => 'Project not found.'], 404);
+        }
+
+        $filePath = trim($request->input('file_path', ''));
+        if (empty($filePath)) {
+            return response()->json(['success' => false, 'message' => 'File path is required.'], 400);
+        }
+
+        $ssh = $this->getProjectSshConnection($project);
+        if (!$ssh) {
+            return response()->json(['success' => false, 'message' => 'SSH connection failed.'], 401);
+        }
+
+        $safeFile = escapeshellarg($filePath);
+        $check = (string) $ssh->exec("[ -f {$safeFile} ] && stat -c%s {$safeFile} 2>/dev/null || echo 'NOT_FOUND'");
+        $check = trim($check);
+
+        if ($check === 'NOT_FOUND' || empty($check)) {
+            return response()->json(['success' => false, 'message' => "File '{$filePath}' not found on remote server."], 404);
+        }
+
+        $fileSize = (int) $check;
+        if ($fileSize > 3 * 1024 * 1024) {
+            return response()->json(['success' => false, 'message' => 'File is too large to open in web editor (> 3MB).'], 413);
+        }
+
+        $contentB64 = (string) $ssh->exec("base64 < {$safeFile} 2>/dev/null");
+        $raw = base64_decode(trim($contentB64));
+
+        // Detect if binary file (presence of null byte)
+        if (str_contains(substr($raw, 0, 8192), "\0")) {
+            return response()->json([
+                'success' => false,
+                'message' => "Cannot open binary file '" . basename($filePath) . "' in code editor.",
+            ], 422);
+        }
+
+        // Normalize UTF-8 characters to prevent JsonResponse crashes
+        $cleanContent = mb_convert_encoding($raw, 'UTF-8', 'UTF-8');
+
+        return response()->json([
+            'success' => true,
+            'file_path' => $filePath,
+            'file_name' => basename($filePath),
+            'extension' => strtolower(pathinfo($filePath, PATHINFO_EXTENSION)),
+            'content' => $cleanContent,
+            'size_bytes' => $fileSize,
+            'size_formatted' => $this->formatFileSize($fileSize),
+        ], 200, [], JSON_INVALID_UTF8_SUBSTITUTE);
+    }
+
+    /**
+     * Save updated file content back to the remote VPS file
+     */
+    public function saveProjectFile(Request $request, $id)
+    {
+        @set_time_limit(90);
+
+        $project = Project::where('user_id', auth()->id())->where('id', $id)->first();
+        if (!$project) {
+            return response()->json(['success' => false, 'message' => 'Project not found.'], 404);
+        }
+
+        $filePath = trim($request->input('file_path', ''));
+        $content = $request->input('content', '');
+
+        if (empty($filePath)) {
+            return response()->json(['success' => false, 'message' => 'File path is required.'], 400);
+        }
+
+        $ssh = $this->getProjectSshConnection($project);
+        if (!$ssh) {
+            return response()->json(['success' => false, 'message' => 'SSH connection failed.'], 401);
+        }
+
+        $safeFile = escapeshellarg($filePath);
+        $b64 = base64_encode($content);
+
+        // Safely write via base64 decoding directly into the target file
+        $saveCmd = "echo " . escapeshellarg($b64) . " | base64 -d > {$safeFile}";
+        $ssh->exec($saveCmd);
+
+        // Verify file was written
+        $stat = (string) $ssh->exec("[ -f {$safeFile} ] && stat -c%s {$safeFile} 2>/dev/null || echo 'FAIL'");
+        $stat = trim($stat);
+
+        if ($stat === 'FAIL') {
+            return response()->json(['success' => false, 'message' => "Failed to write to file '{$filePath}' (permission denied or invalid path)."], 500);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => "File '" . basename($filePath) . "' saved successfully.",
+            'file_path' => $filePath,
+            'size_bytes' => (int) $stat,
+            'size_formatted' => $this->formatFileSize((int) $stat),
+        ]);
+    }
+
+    private function formatFileSize(int $bytes): string
+    {
+        if ($bytes < 1024) return $bytes . ' B';
+        if ($bytes < 1024 * 1024) return round($bytes / 1024, 1) . ' KB';
+        return round($bytes / (1024 * 1024), 2) . ' MB';
     }
 }

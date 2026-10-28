@@ -184,16 +184,16 @@ export default function Dashboard({ initialProjects = [], initialServers = [] })
         } catch (e) {}
     }, [liveCommandLogs, connectedServer]);
 
-    // Pre-populate input fields with connected server info if empty
+    // Pre-populate input fields with connected server info
     useEffect(() => {
         if (connectedServer) {
             if (connectedServer.type === 'linux') {
                 if (!linuxIp && connectedServer.ip) setLinuxIp(connectedServer.ip);
-                if (!linuxUser && connectedServer.user) setLinuxUser(connectedServer.user);
+                if (connectedServer.user) setLinuxUser(connectedServer.user);
                 if (connectedServer.port) setLinuxPort(connectedServer.port);
             } else if (connectedServer.type === 'windows') {
                 if (!windowsIp && connectedServer.ip) setWindowsIp(connectedServer.ip);
-                if (!windowsUser && connectedServer.user) setWindowsUser(connectedServer.user);
+                if (connectedServer.user) setWindowsUser(connectedServer.user);
                 if (connectedServer.port) setWindowsPort(connectedServer.port);
             }
         }
@@ -209,12 +209,19 @@ export default function Dashboard({ initialProjects = [], initialServers = [] })
     const [powerTogglingServerId, setPowerTogglingServerId] = useState(null);
     const [checkingServerId, setCheckingServerId] = useState(null);
 
-    // Auto-select initial active server if not set
+    // Auto-select initial active server or refresh with latest database server info
     useEffect(() => {
-        if (!connectedServer && servers.length > 0) {
-            const activeOne = servers.find(s => s.is_active) || servers[0];
-            if (activeOne) {
-                setConnectedServer(activeOne);
+        if (servers.length > 0) {
+            if (connectedServer) {
+                const fresh = servers.find(s => s.id === connectedServer.id || s.ip === connectedServer.ip);
+                if (fresh && (fresh.user !== connectedServer.user || fresh.name !== connectedServer.name || fresh.is_active !== connectedServer.is_active || fresh.port !== connectedServer.port)) {
+                    setConnectedServer(prev => ({ ...prev, ...fresh }));
+                }
+            } else {
+                const activeOne = servers.find(s => s.is_active) || servers[0];
+                if (activeOne) {
+                    setConnectedServer(activeOne);
+                }
             }
         }
     }, [servers]);

@@ -344,13 +344,13 @@ export default function ServersIndex({ servers: initialServers = [], projects = 
                                                 </div>
                                                 <div className="min-w-0 flex-1">
                                                     <div className="flex items-center gap-1.5">
-                                                        <h3 className="text-sm font-bold text-white group-hover/upper:text-indigo-400 font-mono truncate transition-colors" title={srv.name}>
-                                                            {srv.name}
+                                                        <h3 className="text-sm font-bold text-white group-hover/upper:text-indigo-400 font-mono truncate transition-colors" title={srv.name && !srv.name.includes('@') ? srv.name : `${srv.user}@${srv.ip}`}>
+                                                            {srv.name && !srv.name.includes('@') ? srv.name : `${srv.user}@${srv.ip}`}
                                                         </h3>
                                                         <ChevronRight className="w-3.5 h-3.5 text-slate-500 opacity-0 group-hover/upper:opacity-100 group-hover/upper:translate-x-0.5 transition-all shrink-0" />
                                                     </div>
                                                     <p className="text-[11px] text-slate-400 font-mono truncate">
-                                                        {srv.user}@{srv.ip}:{srv.port || 22}
+                                                        {srv.name && !srv.name.includes('@') ? `${srv.user}@${srv.ip}:${srv.port || 22}` : `Port ${srv.port || 22} • ${srv.user}`}
                                                     </p>
                                                 </div>
                                             </div>

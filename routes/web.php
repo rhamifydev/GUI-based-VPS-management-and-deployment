@@ -50,6 +50,11 @@ Route::middleware('auth')->group(function () {
     Route::post('/vps/projects/check-all-auth', [VpsConnectionController::class, 'checkAllProjectsAuth'])->name('vps.projects.check-all-auth');
     Route::patch('/vps/projects/{id}/credentials', [VpsConnectionController::class, 'updateProjectCredentials'])->name('vps.projects.update-credentials');
     Route::patch('/vps/projects/{id}', [VpsConnectionController::class, 'updateProject'])->name('vps.projects.update');
+
+    // Remote project file management & in-browser editor
+    Route::post('/vps/projects/{id}/files', [VpsConnectionController::class, 'listProjectFiles'])->name('vps.projects.files');
+    Route::post('/vps/projects/{id}/file-content', [VpsConnectionController::class, 'readProjectFile'])->name('vps.projects.file-content');
+    Route::post('/vps/projects/{id}/save-file', [VpsConnectionController::class, 'saveProjectFile'])->name('vps.projects.save-file');
 });
 
 require __DIR__.'/auth.php';
