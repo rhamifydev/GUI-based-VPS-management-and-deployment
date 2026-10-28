@@ -2474,10 +2474,40 @@ BASH;
             ];
 
             $client = new \GuzzleHttp\Client($clientOptions);
-            
-            // If token provided, query authenticated user's repos (includes private & public)
+            $scopes = '';
+            $tokenUser = null;
+            $scopeWarning = null;
+
+            // 1. If token provided, validate token identity and scopes via /user
             if (!empty($token)) {
-                $url = 'https://api.github.com/user/repos?sort=updated&per_page=100&affiliation=owner,collaborator,organization_member&visibility=all';
+                try {
+                    $userRes = $client->get('https://api.github.com/user');
+                    $tokenUser = json_decode($userRes->getBody(), true) ?: [];
+                    if (!empty($tokenUser['login'])) {
+                        $username = $tokenUser['login'];
+                    }
+                    $scopes = $userRes->getHeaderLine('X-OAuth-Scopes');
+
+                    // Check if token possesses repository read permissions
+                    if (!empty($scopes) && !str_contains($scopes, 'repo')) {
+                        $scopeWarning = "Token active for @{$username}, but lacks the 'repo' scope (current scopes: '{$scopes}'). Private repositories will not be returned by GitHub. Please generate a token with the 'repo' checkbox checked.";
+                    }
+                } catch (\GuzzleHttp\Exception\ClientException $userErr) {
+                    $status = $userErr->getResponse() ? $userErr->getResponse()->getStatusCode() : 400;
+                    $body = $userErr->getResponse() ? json_decode($userErr->getResponse()->getBody(), true) : [];
+                    $errText = $body['message'] ?? $userErr->getMessage();
+                    return response()->json([
+                        'success' => false,
+                        'message' => "GitHub Token Rejected ({$status}): {$errText}. Please check that your Personal Access Token is valid and has not expired.",
+                        'details' => $errText,
+                    ], 400);
+                }
+            }
+
+            // 2. Query repositories
+            if (!empty($token)) {
+                // /user/repos retrieves all accessible repositories (owned + collaborated + orgs)
+                $url = 'https://api.github.com/user/repos?sort=updated&per_page=100&visibility=all';
             } else {
                 $url = "https://api.github.com/users/{$username}/repos?sort=updated&per_page=100";
             }
@@ -2485,21 +2515,37 @@ BASH;
             try {
                 $response = $client->get($url);
             } catch (\Throwable $curlErr) {
-                // Graceful fallback: If SSL certificate verification fails on localhost/Windows, retry with verify => false
+                // Graceful fallback for Windows cURL 60 error
                 if (str_contains($curlErr->getMessage(), 'cURL error 60') || str_contains(strtolower($curlErr->getMessage()), 'certificate')) {
                     $fallbackClient = new \GuzzleHttp\Client(array_merge($clientOptions, ['verify' => false]));
                     $response = $fallbackClient->get($url);
                 } else {
-                    throw $curlErr;
+                    // If visibility=all failed, fallback to standard /user/repos
+                    if (!empty($token)) {
+                        $url = 'https://api.github.com/user/repos?sort=updated&per_page=100';
+                        $response = $client->get($url);
+                    } else {
+                        throw $curlErr;
+                    }
                 }
             }
 
             $rawRepos = json_decode($response->getBody(), true) ?: [];
 
-            $repos = array_map(function ($repo) {
+            $privateCount = 0;
+            $publicCount = 0;
+
+            $repos = array_map(function ($repo) use (&$privateCount, &$publicCount) {
                 $lang = $repo['language'] ?? 'Web';
                 $name = $repo['name'] ?? '';
                 $desc = $repo['description'] ?? '';
+                $isPrivate = (bool) ($repo['private'] ?? false);
+
+                if ($isPrivate) {
+                    $privateCount++;
+                } else {
+                    $publicCount++;
+                }
 
                 // Framework inference
                 $fw = 'static';
@@ -2531,7 +2577,7 @@ BASH;
                     'default_branch' => $repo['default_branch'] ?? 'main',
                     'language' => $lang,
                     'framework' => $fw,
-                    'is_private' => (bool) ($repo['private'] ?? false),
+                    'is_private' => $isPrivate,
                     'stars' => $repo['stargazers_count'] ?? 0,
                     'updated_at' => $repo['updated_at'] ?? null,
                     'pushed_at' => $repo['pushed_at'] ?? null,
@@ -2542,6 +2588,20 @@ BASH;
                 'success' => true,
                 'username' => $username,
                 'has_token' => !empty($token),
+                'scopes' => $scopes,
+                'scope_warning' => $scopeWarning,
+                'counts' => [
+                    'total' => count($repos),
+                    'private' => $privateCount,
+                    'public' => $publicCount,
+                ],
+                'token_user' => $tokenUser ? [
+                    'login' => $tokenUser['login'] ?? $username,
+                    'name' => $tokenUser['name'] ?? null,
+                    'avatar_url' => $tokenUser['avatar_url'] ?? null,
+                    'total_private_repos' => $tokenUser['total_private_repos'] ?? null,
+                    'owned_private_repos' => $tokenUser['owned_private_repos'] ?? null,
+                ] : null,
                 'repos' => $repos,
             ]);
         } catch (\GuzzleHttp\Exception\ClientException $e) {

@@ -42,6 +42,10 @@ export default function DeployGitHubModal({
     const [hasToken, setHasToken] = useState(false);
     const [showTokenSettings, setShowTokenSettings] = useState(false);
     const [tokenInput, setTokenInput] = useState('');
+    const [filterTab, setFilterTab] = useState('all'); // 'all' | 'private' | 'public'
+    const [scopeWarning, setScopeWarning] = useState(null);
+    const [repoCounts, setRepoCounts] = useState({ total: 0, private: 0, public: 0 });
+    const [tokenUser, setTokenUser] = useState(null);
 
     // Selected state
     const [selectedRepo, setSelectedRepo] = useState(null);
@@ -103,6 +107,18 @@ export default function DeployGitHubModal({
             if (res.ok && data.success) {
                 setRepositories(data.repos || []);
                 setHasToken(Boolean(data.has_token));
+                setScopeWarning(data.scope_warning || null);
+                if (data.counts) {
+                    setRepoCounts(data.counts);
+                } else {
+                    const priv = (data.repos || []).filter(r => r.is_private).length;
+                    setRepoCounts({
+                        total: (data.repos || []).length,
+                        private: priv,
+                        public: (data.repos || []).length - priv,
+                    });
+                }
+                if (data.token_user) setTokenUser(data.token_user);
                 if (data.username) setGithubUsername(data.username);
                 if (tokenToUse) {
                     try {
@@ -135,6 +151,8 @@ export default function DeployGitHubModal({
     const handleClearToken = () => {
         setGithubToken('');
         setTokenInput('');
+        setScopeWarning(null);
+        setTokenUser(null);
         try {
             localStorage.removeItem('vps_github_token');
         } catch (err) {}
@@ -175,14 +193,20 @@ export default function DeployGitHubModal({
 
     // Filtered repositories
     const filteredRepos = useMemo(() => {
-        if (!searchQuery.trim()) return repositories;
+        let list = repositories;
+        if (filterTab === 'private') {
+            list = list.filter(r => r.is_private);
+        } else if (filterTab === 'public') {
+            list = list.filter(r => !r.is_private);
+        }
+        if (!searchQuery.trim()) return list;
         const q = searchQuery.toLowerCase();
-        return repositories.filter(r => 
+        return list.filter(r => 
             r.name.toLowerCase().includes(q) ||
             (r.description && r.description.toLowerCase().includes(q)) ||
             (r.language && r.language.toLowerCase().includes(q))
         );
-    }, [repositories, searchQuery]);
+    }, [repositories, searchQuery, filterTab]);
 
     const handleConfirmDeploy = async (e) => {
         if (e && e.preventDefault) e.preventDefault();
@@ -388,6 +412,68 @@ export default function DeployGitHubModal({
                             </form>
                         )}
 
+                        {/* Scope Warning Banner if token lacks repo scope */}
+                        {scopeWarning && (
+                            <div className="p-3.5 rounded-2xl bg-amber-950/40 border border-amber-500/30 text-amber-300 text-xs flex items-start gap-2.5">
+                                <AlertCircle className="w-4 h-4 shrink-0 text-amber-400 mt-0.5" />
+                                <div className="space-y-1">
+                                    <span className="font-bold">GitHub Scope Notice: </span>
+                                    <span>{scopeWarning}</span>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Filter Tabs: All / Private / Public */}
+                        <div className="flex items-center justify-between flex-wrap gap-2 pt-1 pb-1">
+                            <div className="inline-flex p-1 rounded-xl bg-[#070A11] border border-slate-800">
+                                <button
+                                    type="button"
+                                    onClick={() => setFilterTab('all')}
+                                    className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
+                                        filterTab === 'all'
+                                            ? 'bg-indigo-600 text-white shadow-sm'
+                                            : 'text-slate-400 hover:text-white'
+                                    }`}
+                                >
+                                    All Repos ({repoCounts.total || repositories.length})
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setFilterTab('private')}
+                                    className={`px-3 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
+                                        filterTab === 'private'
+                                            ? 'bg-amber-600 text-white shadow-sm'
+                                            : 'text-slate-400 hover:text-amber-300'
+                                    }`}
+                                >
+                                    <Lock className="w-3 h-3" />
+                                    <span>Private ({repoCounts.private ?? repositories.filter(r => r.is_private).length})</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setFilterTab('public')}
+                                    className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
+                                        filterTab === 'public'
+                                            ? 'bg-indigo-600 text-white shadow-sm'
+                                            : 'text-slate-400 hover:text-white'
+                                    }`}
+                                >
+                                    Public ({repoCounts.public ?? repositories.filter(r => !r.is_private).length})
+                                </button>
+                            </div>
+
+                            <div className="text-[11px] text-slate-400 font-mono flex items-center gap-2">
+                                {hasToken || githubToken ? (
+                                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                                        Authenticated via PAT
+                                    </span>
+                                ) : (
+                                    <span className="text-slate-500">Unauthenticated (Public Only)</span>
+                                )}
+                            </div>
+                        </div>
+
                         {/* Repositories Scrollable Grid */}
                         <div className="border border-slate-800 rounded-2xl bg-[#070A11] p-2.5 max-h-56 overflow-y-auto scrollbar-thin scrollbar-thumb-slate-800">
                             {isLoadingRepos ? (
@@ -398,18 +484,31 @@ export default function DeployGitHubModal({
                             ) : repoError ? (
                                 <div className="py-8 text-center text-rose-400 text-xs px-4">
                                     <AlertCircle className="w-6 h-6 mx-auto mb-1 text-rose-400" />
-                                    <p>{repoError}</p>
+                                    <p className="font-semibold">{repoError}</p>
+                                    <p className="text-[11px] text-slate-400 mt-1">
+                                        Check your GitHub Personal Access Token or ensure your network can reach api.github.com.
+                                    </p>
                                     <button
                                         type="button"
                                         onClick={() => loadGitHubRepos()}
-                                        className="mt-3 px-3 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold"
+                                        className="mt-3 px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold"
                                     >
                                         Retry
                                     </button>
                                 </div>
                             ) : filteredRepos.length === 0 ? (
-                                <div className="py-10 text-center text-slate-500 text-xs">
-                                    No repositories found matching "{searchQuery}".
+                                <div className="py-10 text-center text-slate-400 text-xs px-4">
+                                    {filterTab === 'private' ? (
+                                        <div className="space-y-1.5">
+                                            <Lock className="w-6 h-6 text-amber-400 mx-auto" />
+                                            <p className="font-bold text-slate-200">No private repositories found under this account.</p>
+                                            <p className="text-[11px] text-slate-400">
+                                                Ensure your GitHub token has the <strong className="text-amber-300 font-mono">repo</strong> scope checked, or click "Unlock Private Repos" to update your token.
+                                            </p>
+                                        </div>
+                                    ) : (
+                                        <p>No repositories found matching "{searchQuery}".</p>
+                                    )}
                                 </div>
                             ) : (
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -433,9 +532,6 @@ export default function DeployGitHubModal({
                                                             <span className="font-bold text-xs text-white truncate font-mono">
                                                                 {repo.name}
                                                             </span>
-                                                            {repo.is_private && (
-                                                                <Lock className="w-3 h-3 text-amber-400 shrink-0" />
-                                                            )}
                                                         </div>
                                                         <p className="text-[11px] text-slate-400 line-clamp-1 mt-0.5">
                                                             {repo.description || 'No description provided'}
@@ -449,9 +545,21 @@ export default function DeployGitHubModal({
                                                 </div>
 
                                                 <div className="flex items-center justify-between text-[10px] font-mono pt-1 text-slate-500 border-t border-slate-800/50">
-                                                    <span className={`px-2 py-0.5 rounded border font-semibold ${langBadgeClass}`}>
-                                                        {repo.language || 'Web'}
-                                                    </span>
+                                                    <div className="flex items-center gap-1.5">
+                                                        <span className={`px-2 py-0.5 rounded border font-semibold ${langBadgeClass}`}>
+                                                            {repo.language || 'Web'}
+                                                        </span>
+                                                        {repo.is_private ? (
+                                                            <span className="px-1.5 py-0.5 rounded font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1">
+                                                                <Lock className="w-2.5 h-2.5" />
+                                                                <span>PRIVATE</span>
+                                                            </span>
+                                                        ) : (
+                                                            <span className="px-1.5 py-0.5 rounded font-medium bg-slate-800/80 text-slate-400 border border-slate-700">
+                                                                PUBLIC
+                                                            </span>
+                                                        )}
+                                                    </div>
                                                     <span>branch: {repo.default_branch}</span>
                                                 </div>
                                             </div>
