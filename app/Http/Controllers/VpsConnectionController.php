@@ -1570,7 +1570,8 @@ BASH;
     }
 
     /**
-     * Update project metadata such as live domain, name, or branch.
+     * Update project metadata such as live domain, name, or branch,
+     * and automatically configure VPS web server (Nginx), PHP-FPM, and .env if requested.
      */
     public function updateProject(Request $request, $id)
     {
@@ -1584,14 +1585,421 @@ BASH;
             'name' => 'nullable|string|max:255',
             'branch' => 'nullable|string|max:100',
             'description' => 'nullable|string|max:1000',
+            'auto_configure_server' => 'nullable|boolean',
+            'sudo_password' => 'nullable|string',
+            'enable_ssl' => 'nullable|boolean',
+            'remember_sudo_password' => 'nullable|boolean',
         ]);
 
-        $project->update($validated);
+        $newDomain = isset($validated['domain']) ? trim($validated['domain']) : null;
+        if (!empty($newDomain)) {
+            $newDomain = preg_replace('#^https?://#i', '', $newDomain);
+            $newDomain = rtrim(explode('/', $newDomain)[0], ':');
+            $newDomain = explode(':', $newDomain)[0];
+        }
+
+        $projectData = [
+            'name' => $validated['name'] ?? $project->name,
+            'branch' => $validated['branch'] ?? $project->branch,
+            'description' => $validated['description'] ?? $project->description,
+            'domain' => $newDomain ?: $project->domain,
+        ];
+
+        $serverLogs = [];
+        $webserverConfigured = false;
+        $sudoRequired = false;
+        $configMessage = 'Project updated successfully.';
+
+        // Automatic webserver (Nginx) configuration if requested or if domain changed
+        $shouldConfigure = !empty($validated['auto_configure_server']) || ($request->has('domain') && !empty($newDomain) && $newDomain !== $project->domain);
+
+        if ($shouldConfigure && !empty($newDomain)) {
+            $configResult = $this->configureServerWebserver(
+                $project,
+                $newDomain,
+                $validated['sudo_password'] ?? null,
+                !empty($validated['enable_ssl']),
+                !empty($validated['remember_sudo_password'])
+            );
+
+            $serverLogs = $configResult['logs'] ?? [];
+            if (!empty($configResult['sudo_required'])) {
+                $sudoRequired = true;
+                $configMessage = $configResult['message'];
+            } elseif (!empty($configResult['success'])) {
+                $webserverConfigured = true;
+                $configMessage = $configResult['message'];
+                $projectData['domain'] = $configResult['domain'] ?? $newDomain;
+            } else {
+                $configMessage = $configResult['message'] ?? 'Could not automatically configure Nginx.';
+            }
+        }
+
+        $project->update($projectData);
 
         return response()->json([
             'success' => true,
-            'message' => 'Project updated successfully.',
+            'message' => $configMessage,
             'project' => $project->fresh(),
+            'webserver_configured' => $webserverConfigured,
+            'sudo_required' => $sudoRequired,
+            'logs' => $serverLogs,
+        ]);
+    }
+
+    /**
+     * Automatically configure web server (Nginx), virtual host, and PHP-FPM for the given project and domain.
+     */
+    private function configureServerWebserver(Project $project, string $domain, ?string $sudoPassword = null, bool $enableSsl = false, bool $rememberSudo = false): array
+    {
+        $server = $project->server ?? Server::where('user_id', $project->user_id)->where('ip', $project->ip)->first();
+        if (!$server) {
+            return ['success' => false, 'message' => 'Parent server not found.'];
+        }
+
+        $cleanDomain = strtolower(trim($domain));
+        $cleanDomain = preg_replace('#^https?://#i', '', $cleanDomain);
+        $cleanDomain = rtrim(explode('/', $cleanDomain)[0], ':');
+        $cleanDomain = explode(':', $cleanDomain)[0];
+        $cleanDomain = trim($cleanDomain);
+
+        if (empty($cleanDomain)) {
+            return ['success' => false, 'message' => 'Invalid domain supplied.'];
+        }
+
+        $logs = [];
+        $logs[] = "Connecting to {$server->user}@{$server->ip} via SSH...";
+
+        $ssh = new SSH2($server->ip, (int) ($server->port ?: 22), 15);
+        $ssh->setTimeout(60);
+        $authenticated = false;
+
+        if ($server->auth_method === 'key' || $server->auth_method === 'auto') {
+            $resolvedKey = $this->resolveSshKey($server->key_path, $server->key_content);
+            if ($resolvedKey) {
+                try {
+                    $key = $this->loadPrivateKeyFast($resolvedKey['content'], $server->key_passphrase ?: null);
+                    if ($key && $ssh->login($server->user, $key)) {
+                        $authenticated = true;
+                    }
+                } catch (\Throwable $e) {}
+            }
+        }
+
+        if (!$authenticated && (!empty($server->password) || $server->auth_method === 'password')) {
+            if (!empty($server->password) && $ssh->login($server->user, $server->password)) {
+                $authenticated = true;
+            }
+        }
+
+        if (!$authenticated) {
+            return [
+                'success' => false,
+                'message' => "SSH authentication failed for {$server->user}@{$server->ip}.",
+                'logs' => $logs,
+            ];
+        }
+
+        $logs[] = "SSH session established successfully.";
+
+        // Determine Web Root
+        $projectPath = rtrim(trim($project->path), '/\\');
+        $hasPublic = trim((string) $ssh->exec("[ -d " . escapeshellarg("{$projectPath}/public") . " ] && echo 'yes' || echo 'no'")) === 'yes';
+        $webRoot = $hasPublic ? "{$projectPath}/public" : $projectPath;
+        $logs[] = "Web root determined as: {$webRoot}";
+
+        // Update .env APP_URL if .env exists
+        $hasEnv = trim((string) $ssh->exec("[ -f " . escapeshellarg("{$projectPath}/.env") . " ] && echo 'yes' || echo 'no'")) === 'yes';
+        if ($hasEnv) {
+            $protocol = $enableSsl ? 'https://' : 'http://';
+            $envAppUrl = "{$protocol}{$cleanDomain}";
+            $safeEnv = escapeshellarg("{$projectPath}/.env");
+            $ssh->exec("sed -i 's|^APP_URL=.*|APP_URL={$envAppUrl}|' {$safeEnv}");
+            $logs[] = "Updated APP_URL in {$projectPath}/.env to {$envAppUrl}";
+
+            // Clear Laravel config cache if artisan exists
+            if (trim((string) $ssh->exec("[ -f " . escapeshellarg("{$projectPath}/artisan") . " ] && echo 'yes' || echo 'no'")) === 'yes') {
+                $ssh->exec("cd " . escapeshellarg($projectPath) . " && php artisan config:clear 2>/dev/null");
+                $logs[] = "Cleared Laravel config cache.";
+            }
+        }
+
+        // Test Sudo access
+        $effectivePassword = !empty($sudoPassword) ? $sudoPassword : ($server->password ?: '');
+        $sudoPrefix = !empty($effectivePassword)
+            ? "echo " . escapeshellarg($effectivePassword) . " | sudo -S "
+            : "sudo -n ";
+
+        $sudoTest = trim((string) $ssh->exec("{$sudoPrefix} true 2>&1 && echo 'SUDO_OK' || echo 'SUDO_FAIL'"));
+        $hasSudo = str_contains($sudoTest, 'SUDO_OK');
+
+        if (!$hasSudo) {
+            $logs[] = "Notice: Sudo privilege requires password authentication on {$server->ip}.";
+            return [
+                'success' => false,
+                'sudo_required' => true,
+                'message' => "Sudo password required to configure Nginx files in /etc/nginx/. Please provide your sudo password in the modal.",
+                'logs' => $logs,
+            ];
+        }
+
+        if (!empty($sudoPassword) && $rememberSudo) {
+            $server->update(['password' => $sudoPassword]);
+        }
+
+        // Detect PHP-FPM socket on server
+        $cleanSlug = strtolower(preg_replace('/[^a-zA-Z0-9_]/', '_', basename($projectPath)));
+        $fpmSock = trim((string) $ssh->exec("
+            if [ -S \"/var/run/php/{$cleanSlug}-fpm.sock\" ]; then
+                echo \"/var/run/php/{$cleanSlug}-fpm.sock\"
+            elif [ -S \"/run/php/{$cleanSlug}-fpm.sock\" ]; then
+                echo \"/run/php/{$cleanSlug}-fpm.sock\"
+            else
+                ls /var/run/php/*.sock 2>/dev/null | grep -v 'catchall' | sort -V | tail -n 1
+            fi
+        "));
+
+        if (empty($fpmSock) || !str_contains($fpmSock, '.sock')) {
+            $fpmSock = '/var/run/php/php8.4-fpm.sock';
+        }
+        $logs[] = "FastCGI PHP-FPM socket detected: {$fpmSock}";
+
+        // Check if an existing site config exists for this project
+        $existingSiteFile = null;
+        $possibleSites = [
+            "/etc/nginx/sites-available/{$cleanSlug}",
+            "/etc/nginx/sites-available/{$cleanDomain}",
+            "/etc/nginx/sites-available/{$cleanDomain}.conf",
+        ];
+        foreach ($possibleSites as $ps) {
+            if (trim((string) $ssh->exec("{$sudoPrefix} test -f {$ps} && echo 'yes' || echo 'no'")) === 'yes') {
+                $existingSiteFile = $ps;
+                break;
+            }
+        }
+
+        $siteConfigPath = $existingSiteFile ?: "/etc/nginx/sites-available/{$cleanDomain}.conf";
+        $siteName = basename($siteConfigPath);
+        $enabledLink = "/etc/nginx/sites-enabled/{$siteName}";
+
+        if ($existingSiteFile) {
+            $logs[] = "Found existing Nginx config at {$existingSiteFile}. Updating server_name and root...";
+            $updateNginxCmd = "
+                {$sudoPrefix} sed -i -E 's|server_name[[:space:]]+.*?;|server_name {$cleanDomain} www.{$cleanDomain};|g' {$existingSiteFile}
+                {$sudoPrefix} sed -i -E 's|root[[:space:]]+.*?;|root {$webRoot};|g' {$existingSiteFile}
+            ";
+            $ssh->exec($updateNginxCmd);
+        } else {
+            $logs[] = "Creating new Nginx virtual host for {$cleanDomain}...";
+            $vhostConfig = "server {\n"
+                . "    listen 80;\n"
+                . "    listen [::]:80;\n"
+                . "    server_name {$cleanDomain} www.{$cleanDomain};\n"
+                . "    root {$webRoot};\n"
+                . "    index index.php index.html index.htm;\n"
+                . "    charset utf-8;\n"
+                . "\n"
+                . "    location / {\n"
+                . "        try_files \$uri \$uri/ /index.php?\$query_string;\n"
+                . "    }\n"
+                . "\n"
+                . "    location = /favicon.ico { access_log off; log_not_found off; }\n"
+                . "    location = /robots.txt  { access_log off; log_not_found off; }\n"
+                . "\n"
+                . "    error_page 404 /index.php;\n"
+                . "\n"
+                . "    client_max_body_size 30M;\n"
+                . "\n"
+                . "    location ~ \\.php$ {\n"
+                . "        fastcgi_pass unix:{$fpmSock};\n"
+                . "        fastcgi_param SCRIPT_FILENAME \$realpath_root\$fastcgi_script_name;\n"
+                . "        include fastcgi_params;\n"
+                . "        fastcgi_buffer_size 32k;\n"
+                . "        fastcgi_buffers 16 16k;\n"
+                . "        fastcgi_busy_buffers_size 32k;\n"
+                . "    }\n"
+                . "\n"
+                . "    location ~ /\\.(?!well-known).* {\n"
+                . "        deny all;\n"
+                . "    }\n"
+                . "}\n";
+
+            $tmpFile = "/tmp/vhost_" . time() . ".conf";
+            $safeVhost = escapeshellarg($vhostConfig);
+            $ssh->exec("echo {$safeVhost} > {$tmpFile}");
+            $ssh->exec("{$sudoPrefix} cp {$tmpFile} {$siteConfigPath} && rm -f {$tmpFile}");
+        }
+
+        // Symlink to sites-enabled
+        $ssh->exec("{$sudoPrefix} ln -sf {$siteConfigPath} {$enabledLink}");
+        $logs[] = "Symlinked {$siteConfigPath} -> {$enabledLink}";
+
+        // Test Nginx configuration
+        $testOut = trim((string) $ssh->exec("{$sudoPrefix} nginx -t 2>&1"));
+        $logs[] = "Nginx test: " . ($testOut ?: 'OK');
+
+        if (str_contains($testOut, 'syntax is ok') || str_contains($testOut, 'test is successful')) {
+            $ssh->exec("{$sudoPrefix} systemctl reload nginx 2>&1 || {$sudoPrefix} service nginx reload 2>&1");
+            $logs[] = "Nginx reloaded successfully. Traffic for {$cleanDomain} is now routing to {$webRoot}.";
+
+            if ($enableSsl) {
+                $hasCertbot = trim((string) $ssh->exec("command -v certbot >/dev/null 2>&1 && echo 'yes' || echo 'no'")) === 'yes';
+                if ($hasCertbot) {
+                    $logs[] = "Issuing Let's Encrypt SSL certificate via Certbot for {$cleanDomain}...";
+                    $sslCmd = "{$sudoPrefix} certbot --nginx -d {$cleanDomain} --non-interactive --agree-tos -m admin@{$cleanDomain} --redirect 2>&1";
+                    $sslOut = trim((string) $ssh->exec($sslCmd));
+                    $logs[] = $sslOut ?: "SSL Certificate installed and HTTPS active.";
+                } else {
+                    $logs[] = "Certbot is not installed. Standard Port 80 (HTTP) active.";
+                }
+            }
+
+            return [
+                'success' => true,
+                'message' => "Domain '{$cleanDomain}' configured and live on Nginx!",
+                'domain' => $cleanDomain,
+                'logs' => $logs,
+            ];
+        } else {
+            return [
+                'success' => false,
+                'message' => "Nginx syntax test failed: {$testOut}",
+                'logs' => $logs,
+            ];
+        }
+    }
+
+    /**
+     * Pull latest git changes for project and refresh commits.
+     */
+    public function pullProjectChanges(Request $request, $id)
+    {
+        $project = Project::where('user_id', auth()->id())->where('id', $id)->first();
+        if (!$project) {
+            return response()->json(['success' => false, 'message' => 'Project not found.'], 404);
+        }
+
+        $server = $project->server ?? Server::where('user_id', $project->user_id)->where('ip', $project->ip)->first();
+        if (!$server || !$server->is_active) {
+            return response()->json(['success' => false, 'message' => 'Host server is offline or unavailable.'], 400);
+        }
+
+        $branch = $request->input('branch') ?: ($project->branch ?: 'main');
+        $ssh = new SSH2($server->ip, (int) ($server->port ?: 22), 15);
+        $ssh->setTimeout(90);
+        $authenticated = false;
+
+        if ($server->auth_method === 'key' || $server->auth_method === 'auto') {
+            $resolvedKey = $this->resolveSshKey($server->key_path, $server->key_content);
+            if ($resolvedKey) {
+                try {
+                    $key = $this->loadPrivateKeyFast($resolvedKey['content'], $server->key_passphrase ?: null);
+                    if ($key && $ssh->login($server->user, $key)) {
+                        $authenticated = true;
+                    }
+                } catch (\Throwable $e) {}
+            }
+        }
+
+        if (!$authenticated && (!empty($server->password) || $server->auth_method === 'password')) {
+            if (!empty($server->password) && $ssh->login($server->user, $server->password)) {
+                $authenticated = true;
+            }
+        }
+
+        if (!$authenticated) {
+            return response()->json(['success' => false, 'message' => 'SSH connection failed.'], 401);
+        }
+
+        $safePath = escapeshellarg($project->path);
+        $safeBranch = escapeshellarg($branch);
+
+        $out = trim((string) $ssh->exec("
+            cd {$safePath}
+            git fetch origin 2>&1
+            git checkout {$safeBranch} 2>&1
+            git pull origin {$safeBranch} 2>&1
+            if [ -f artisan ]; then
+                php artisan optimize:clear 2>&1
+            fi
+        "));
+
+        // Refresh commit hash
+        $commitInfo = trim((string) $ssh->exec("cd {$safePath} && git log -1 --pretty=format:'%h|%s' 2>/dev/null"));
+        $parts = explode('|', $commitInfo, 2);
+        $commitHash = !empty($parts[0]) ? $parts[0] : $project->commit;
+        $commitMsg = !empty($parts[1]) ? $parts[1] : $project->commit_message;
+
+        $project->update([
+            'branch' => $branch,
+            'commit' => $commitHash,
+            'commit_message' => $commitMsg,
+            'last_deploy_time' => now()->toIso8601String(),
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Pulled latest changes from branch ' . $branch,
+            'output' => $out,
+            'project' => $project->fresh(),
+        ]);
+    }
+
+    /**
+     * Clear application cache on remote VPS.
+     */
+    public function clearProjectCache(Request $request, $id)
+    {
+        $project = Project::where('user_id', auth()->id())->where('id', $id)->first();
+        if (!$project) {
+            return response()->json(['success' => false, 'message' => 'Project not found.'], 404);
+        }
+
+        $server = $project->server ?? Server::where('user_id', $project->user_id)->where('ip', $project->ip)->first();
+        if (!$server || !$server->is_active) {
+            return response()->json(['success' => false, 'message' => 'Host server is offline or unavailable.'], 400);
+        }
+
+        $ssh = new SSH2($server->ip, (int) ($server->port ?: 22), 15);
+        $ssh->setTimeout(30);
+        $authenticated = false;
+
+        if ($server->auth_method === 'key' || $server->auth_method === 'auto') {
+            $resolvedKey = $this->resolveSshKey($server->key_path, $server->key_content);
+            if ($resolvedKey) {
+                try {
+                    $key = $this->loadPrivateKeyFast($resolvedKey['content'], $server->key_passphrase ?: null);
+                    if ($key && $ssh->login($server->user, $key)) {
+                        $authenticated = true;
+                    }
+                } catch (\Throwable $e) {}
+            }
+        }
+
+        if (!$authenticated && (!empty($server->password) || $server->auth_method === 'password')) {
+            if (!empty($server->password) && $ssh->login($server->user, $server->password)) {
+                $authenticated = true;
+            }
+        }
+
+        if (!$authenticated) {
+            return response()->json(['success' => false, 'message' => 'SSH connection failed.'], 401);
+        }
+
+        $safePath = escapeshellarg($project->path);
+        $out = trim((string) $ssh->exec("
+            cd {$safePath}
+            if [ -f artisan ]; then
+                php artisan optimize:clear 2>&1
+            elif [ -f package.json ]; then
+                npm cache clean --force 2>&1 || true
+            fi
+        "));
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Project cache cleared successfully.',
+            'output' => $out,
         ]);
     }
 

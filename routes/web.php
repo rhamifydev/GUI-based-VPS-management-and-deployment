@@ -50,6 +50,8 @@ Route::middleware('auth')->group(function () {
     Route::post('/vps/projects/check-all-auth', [VpsConnectionController::class, 'checkAllProjectsAuth'])->name('vps.projects.check-all-auth');
     Route::patch('/vps/projects/{id}/credentials', [VpsConnectionController::class, 'updateProjectCredentials'])->name('vps.projects.update-credentials');
     Route::patch('/vps/projects/{id}', [VpsConnectionController::class, 'updateProject'])->name('vps.projects.update');
+    Route::post('/vps/projects/{id}/pull', [VpsConnectionController::class, 'pullProjectChanges'])->name('vps.projects.pull');
+    Route::post('/vps/projects/{id}/clear-cache', [VpsConnectionController::class, 'clearProjectCache'])->name('vps.projects.clear-cache');
 
     // Remote project file management & in-browser editor
     Route::post('/vps/projects/{id}/files', [VpsConnectionController::class, 'listProjectFiles'])->name('vps.projects.files');

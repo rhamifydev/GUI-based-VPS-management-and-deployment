@@ -46,12 +46,16 @@ import {
     Minimize2,
     WrapText,
     Copy,
-    Check
+    Check,
+    Pencil,
+    Settings
 } from 'lucide-react';
+import ManageProjectModal from '@/Components/ManageProjectModal';
 
 export default function ServerShow({ server: initialServer, projects: initialProjects = [], allServers = [] }) {
     const [server, setServer] = useState(initialServer);
     const [projects, setProjects] = useState(initialProjects);
+    const [managingProject, setManagingProject] = useState(null);
 
     // Active Selected Project for File Explorer (defaults to first project)
     const [activeProject, setActiveProject] = useState(() => {
@@ -122,6 +126,47 @@ export default function ServerShow({ server: initialServer, projects: initialPro
         domain: '',
         description: '',
     });
+
+    // In-place Domain Editing State
+    const [editingDomainProjectId, setEditingDomainProjectId] = useState(null);
+    const [editingDomainValue, setEditingDomainValue] = useState('');
+
+    const startEditingDomain = (project, e) => {
+        if (e) e.stopPropagation();
+        setEditingDomainProjectId(project.id);
+        setEditingDomainValue(project.domain || project.ip || '');
+    };
+
+    const handleSaveDomain = async (projectId, e) => {
+        if (e) e.stopPropagation();
+        const cleanDomain = editingDomainValue.trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+        try {
+            const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+            const res = await fetch(`/vps/projects/${projectId}`, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': csrfToken || '',
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+                body: JSON.stringify({ domain: cleanDomain })
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                setProjects(prev => prev.map(p => p.id === projectId ? { ...p, domain: cleanDomain } : p));
+                if (activeProject?.id === projectId) {
+                    setActiveProject(prev => ({ ...prev, domain: cleanDomain }));
+                }
+                setEditingDomainProjectId(null);
+                triggerAlert(`Project domain updated to ${cleanDomain || 'server IP'}`, 'Domain Updated', 'success');
+            } else {
+                triggerAlert(data.message || 'Failed to update domain.', 'Update Failed', 'error');
+            }
+        } catch (err) {
+            triggerAlert(`Error updating domain: ${err.message}`, 'Update Error', 'error');
+        }
+    };
 
     const triggerAlert = (message, title = 'Notice', type = 'info') => {
         setAlertNotice({ title, message, type });
@@ -766,36 +811,141 @@ export default function ServerShow({ server: initialServer, projects: initialPro
                                             )}
                                         </div>
 
-                                        {/* Project Name */}
-                                        <div className="w-full">
-                                            <h3 className={`text-xs font-bold font-mono truncate ${isSelected ? 'text-indigo-300' : 'text-white'}`}>
-                                                {proj.name}
-                                            </h3>
-                                            <div className="text-[10px] text-slate-400 font-mono truncate mt-0.5">
-                                                {proj.branch || 'main'} • {proj.framework || 'app'}
+                                            {/* Project Name */}
+                                            <div className="w-full">
+                                                <h3 className={`text-xs font-bold font-mono truncate ${isSelected ? 'text-indigo-300' : 'text-white'}`}>
+                                                    {proj.name}
+                                                </h3>
+                                                <div className="text-[10px] text-slate-400 font-mono truncate mt-0.5">
+                                                    {proj.branch || 'main'} • {proj.framework || 'app'}
+                                                </div>
+                                                {proj.domain ? (
+                                                    <div
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setManagingProject(proj);
+                                                        }}
+                                                        className="text-[9px] text-cyan-400 font-mono truncate max-w-full mt-1 flex items-center justify-center gap-1 bg-cyan-950/40 hover:bg-cyan-900/60 px-1.5 py-0.5 rounded border border-cyan-800/40 cursor-pointer transition-colors"
+                                                        title="Click to manage URL & web server configuration"
+                                                    >
+                                                        <Globe className="w-2.5 h-2.5 text-cyan-400 shrink-0" />
+                                                        <span className="truncate">{proj.domain}</span>
+                                                    </div>
+                                                ) : (
+                                                    <div
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setManagingProject(proj);
+                                                        }}
+                                                        className="text-[9px] text-slate-400 hover:text-slate-200 font-mono truncate max-w-full mt-1 flex items-center justify-center gap-1 bg-slate-900/60 hover:bg-slate-800 px-1.5 py-0.5 rounded border border-slate-800 cursor-pointer transition-colors"
+                                                        title="Add custom domain"
+                                                    >
+                                                        <Plus className="w-2.5 h-2.5 text-slate-400 shrink-0" />
+                                                        <span>Add URL</span>
+                                                    </div>
+                                                )}
+                                                {isSelected ? (
+                                                    <span className="inline-block mt-1.5 px-2 py-0.5 rounded-full text-[9px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/40">
+                                                        Browsing Files ↓
+                                                    </span>
+                                                ) : (
+                                                    <span className="inline-block mt-1.5 px-2 py-0.5 rounded-full text-[9px] text-slate-500 bg-slate-900 border border-slate-800">
+                                                        Select to View
+                                                    </span>
+                                                )}
                                             </div>
-                                            {isSelected ? (
-                                                <span className="inline-block mt-1.5 px-2 py-0.5 rounded-full text-[9px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/40">
-                                                    Browsing Files ↓
-                                                </span>
-                                            ) : (
-                                                <span className="inline-block mt-1.5 px-2 py-0.5 rounded-full text-[9px] text-slate-500 bg-slate-900 border border-slate-800">
-                                                    Select to View
-                                                </span>
-                                            )}
                                         </div>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    )}
-                </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
 
-                {/* Section 2: Windows-Like File & Folder Explorer (Downward from projects) */}
-                {activeProject && (
-                    <div className="bg-[#0E131F] border border-slate-800/90 rounded-2xl shadow-2xl overflow-hidden animate-fade-in">
-                        {/* Windows-style Explorer Toolbar & Address Bar */}
-                        <div className="p-3.5 bg-[#090C15] border-b border-slate-800 space-y-3">
+                    {/* Section 2: Windows-Like File & Folder Explorer (Downward from projects) */}
+                    {activeProject && (
+                        <div className="bg-[#0E131F] border border-slate-800/90 rounded-2xl shadow-2xl overflow-hidden animate-fade-in">
+                            {/* Windows-style Explorer Toolbar & Address Bar */}
+                            <div className="p-3.5 bg-[#090C15] border-b border-slate-800 space-y-3">
+                                {/* Active Project Info & Quick Domain Editor */}
+                                <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-slate-800/80 text-xs">
+                                    <div className="flex items-center gap-2 min-w-0">
+                                        <FolderOpen className="w-4 h-4 text-indigo-400 shrink-0" />
+                                        <span className="font-bold text-white font-mono">{activeProject.name}</span>
+                                        <span className="text-slate-600">•</span>
+                                        <span className="text-[11px] font-mono text-slate-400 truncate max-w-[280px] sm:max-w-md">{activeProject.path}</span>
+                                    </div>
+
+                                    {/* Domain Editor / Display */}
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                                            <Globe className="w-3 h-3 text-cyan-400" /> Domain:
+                                        </span>
+                                        {editingDomainProjectId === activeProject.id ? (
+                                            <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                                                <input
+                                                    type="text"
+                                                    value={editingDomainValue}
+                                                    onChange={(e) => setEditingDomainValue(e.target.value)}
+                                                    placeholder="e.g. app.domain.com"
+                                                    className="h-6 px-2 py-0.5 text-xs bg-slate-950 border border-indigo-500 rounded text-cyan-300 font-mono w-44 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                                                    autoFocus
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter') handleSaveDomain(activeProject.id, e);
+                                                        if (e.key === 'Escape') setEditingDomainProjectId(null);
+                                                    }}
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={(e) => handleSaveDomain(activeProject.id, e)}
+                                                    className="px-2 py-0.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-semibold transition-colors"
+                                                >
+                                                    Save
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setEditingDomainProjectId(null)}
+                                                    className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 text-[11px] transition-colors"
+                                                >
+                                                    Cancel
+                                                </button>
+                                            </div>
+                                        ) : (
+                                            <div className="flex items-center gap-1.5">
+                                                <span className="text-xs font-mono font-semibold text-cyan-400">
+                                                    {activeProject.domain || <span className="text-slate-500 italic font-normal">Not set (using server IP)</span>}
+                                                </span>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setManagingProject(activeProject)}
+                                                    className="p-1 rounded text-slate-400 hover:text-cyan-300 hover:bg-slate-800 transition-colors"
+                                                    title="Configure URL & Web Server"
+                                                >
+                                                    <Pencil className="w-3 h-3" />
+                                                </button>
+                                                {activeProject.domain && (
+                                                    <a
+                                                        href={`http://${activeProject.domain.replace(/^https?:\/\//, '')}`}
+                                                        target="_blank"
+                                                        rel="noreferrer"
+                                                        className="p-1 rounded text-slate-400 hover:text-indigo-400 hover:bg-slate-800 transition-colors"
+                                                        title={`Open http://${activeProject.domain}`}
+                                                    >
+                                                        <ExternalLink className="w-3 h-3" />
+                                                    </a>
+                                                )}
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setManagingProject(activeProject)}
+                                                    className="px-2.5 py-1 rounded-lg bg-indigo-950/70 hover:bg-indigo-900/80 border border-indigo-500/40 text-indigo-300 hover:text-white text-xs font-medium flex items-center gap-1.5 transition-colors shadow-sm ml-2"
+                                                    title="Manage URL and automate web server setup"
+                                                >
+                                                    <Settings className="w-3.5 h-3.5 text-cyan-400" />
+                                                    <span>Configure URL</span>
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
                             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                                 {/* Navigation Action Buttons & Address Breadcrumb */}
                                 <div className="flex items-center gap-1.5 flex-1 min-w-0">
@@ -1404,6 +1554,22 @@ export default function ServerShow({ server: initialServer, projects: initialPro
                         setProjects(prev => [newProj, ...prev.filter(p => p.id !== newProj.id)]);
                         setActiveProject(newProj);
                         triggerAlert(`Project '${newProj.name}' deployed successfully under user ${server.user || 'server user'}.`, 'Deployment Succeeded', 'success');
+                    }}
+                />
+
+                {/* Manage Project & URL Modal */}
+                <ManageProjectModal
+                    isOpen={Boolean(managingProject)}
+                    onClose={() => setManagingProject(null)}
+                    project={managingProject}
+                    allServers={allServers && allServers.length > 0 ? [server, ...allServers.filter(s => s.id !== server.id)] : [server]}
+                    onProjectUpdated={(updated) => {
+                        setProjects(prev => prev.map(p => p.id === updated.id ? { ...p, ...updated } : p));
+                        if (activeProject?.id === updated.id) {
+                            setActiveProject(updated);
+                        }
+                        setManagingProject(updated);
+                        triggerAlert(`Project '${updated.name}' configuration saved!`, 'Project Updated', 'success');
                     }}
                 />
             </div>
