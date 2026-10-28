@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { Head, Link } from '@inertiajs/react';
+import DeployGitHubModal from '@/Components/DeployGitHubModal';
 import {
     Server,
     Terminal,
@@ -1393,139 +1394,18 @@ export default function ServerShow({ server: initialServer, projects: initialPro
                     </div>
                 )}
 
-                {/* Create New Project Modal */}
-                {createProjectOpen && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
-                        <div className="relative w-full max-w-lg bg-[#0E131F] border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl shadow-indigo-950/40 max-h-[90vh] overflow-y-auto">
-                            <button
-                                type="button"
-                                onClick={() => setCreateProjectOpen(false)}
-                                className="absolute top-5 right-5 p-1.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-white"
-                            >
-                                <X className="w-4 h-4" />
-                            </button>
-
-                            <div className="flex items-center gap-3 mb-6 pb-4 border-b border-slate-800">
-                                <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-cyan-500 p-[1px]">
-                                    <div className="w-full h-full bg-[#0E131F] rounded-[11px] flex items-center justify-center">
-                                        <Plus className="w-5 h-5 text-indigo-400" />
-                                    </div>
-                                </div>
-                                <div>
-                                    <h3 className="text-base font-bold text-white tracking-tight">
-                                        Create New Project on {server.name}
-                                    </h3>
-                                    <p className="text-xs text-slate-400">
-                                        Initializes a new directory workload on this server.
-                                    </p>
-                                </div>
-                            </div>
-
-                            <form onSubmit={handleCreateProject} className="space-y-4">
-                                <div>
-                                    <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                                        Project Name <span className="text-rose-400">*</span>
-                                    </label>
-                                    <input
-                                        type="text"
-                                        value={newProjectForm.name}
-                                        onChange={(e) => {
-                                            const name = e.target.value;
-                                            const slug = name.toLowerCase().replace(/[^a-z0-9_-]/g, '-');
-                                            setNewProjectForm({
-                                                ...newProjectForm,
-                                                name,
-                                                path: `/var/www/${slug || 'my-app'}`
-                                            });
-                                        }}
-                                        placeholder="e.g. My Nextjs Portal"
-                                        className="w-full bg-[#080B12] border border-slate-700/80 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 font-mono"
-                                        required
-                                        autoFocus
-                                    />
-                                </div>
-
-                                <div>
-                                    <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                                        Target Server Directory Path <span className="text-rose-400">*</span>
-                                    </label>
-                                    <input
-                                        type="text"
-                                        value={newProjectForm.path}
-                                        onChange={(e) => setNewProjectForm({ ...newProjectForm, path: e.target.value })}
-                                        placeholder="/var/www/my-app"
-                                        className="w-full bg-[#080B12] border border-slate-700/80 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 font-mono"
-                                        required
-                                    />
-                                </div>
-
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                                            Application Framework
-                                        </label>
-                                        <select
-                                            value={newProjectForm.framework}
-                                            onChange={(e) => setNewProjectForm({ ...newProjectForm, framework: e.target.value })}
-                                            className="w-full bg-[#080B12] border border-slate-700/80 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono"
-                                        >
-                                            <option value="laravel">Laravel (PHP)</option>
-                                            <option value="node">Node.js / Express</option>
-                                            <option value="nextjs">Next.js / React</option>
-                                            <option value="vue">Vue.js / Nuxt</option>
-                                            <option value="python">Python / Django / Flask</option>
-                                            <option value="static">Static HTML / CSS</option>
-                                        </select>
-                                    </div>
-
-                                    <div>
-                                        <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                                            Git Branch
-                                        </label>
-                                        <input
-                                            type="text"
-                                            value={newProjectForm.branch}
-                                            onChange={(e) => setNewProjectForm({ ...newProjectForm, branch: e.target.value })}
-                                            placeholder="main"
-                                            className="w-full bg-[#080B12] border border-slate-700/80 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 font-mono"
-                                        />
-                                    </div>
-                                </div>
-
-                                <div>
-                                    <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                                        Git Repository URL (Optional)
-                                    </label>
-                                    <input
-                                        type="text"
-                                        value={newProjectForm.git_url}
-                                        onChange={(e) => setNewProjectForm({ ...newProjectForm, git_url: e.target.value })}
-                                        placeholder="git@github.com:username/repository.git"
-                                        className="w-full bg-[#080B12] border border-slate-700/80 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 font-mono"
-                                    />
-                                </div>
-
-                                <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-800">
-                                    <button
-                                        type="button"
-                                        onClick={() => setCreateProjectOpen(false)}
-                                        className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 text-xs font-medium"
-                                    >
-                                        Cancel
-                                    </button>
-                                    <button
-                                        type="submit"
-                                        disabled={isCreatingProject}
-                                        className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-500 hover:from-indigo-500 hover:to-cyan-400 text-white font-semibold text-xs shadow-lg shadow-indigo-500/20 disabled:opacity-50 flex items-center gap-2"
-                                    >
-                                        {isCreatingProject && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                                        <span>Create Project</span>
-                                    </button>
-                                </div>
-                            </form>
-                        </div>
-                    </div>
-                )}
+                {/* Deploy GitHub Project Modal */}
+                <DeployGitHubModal
+                    isOpen={createProjectOpen}
+                    onClose={() => setCreateProjectOpen(false)}
+                    servers={allServers && allServers.length > 0 ? [server, ...allServers.filter(s => s.id !== server.id)] : [server]}
+                    initialServerId={server.id}
+                    onProjectDeployed={(newProj) => {
+                        setProjects(prev => [newProj, ...prev.filter(p => p.id !== newProj.id)]);
+                        setActiveProject(newProj);
+                        triggerAlert(`Project '${newProj.name}' deployed successfully under user ${server.user || 'server user'}.`, 'Deployment Succeeded', 'success');
+                    }}
+                />
             </div>
         </AuthenticatedLayout>
     );

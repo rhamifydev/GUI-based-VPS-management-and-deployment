@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { Head, Link } from '@inertiajs/react';
+import DeployGitHubModal from '@/Components/DeployGitHubModal';
 import {
     Server,
     Power,
@@ -28,6 +29,8 @@ export default function ServersIndex({ servers: initialServers = [], projects = 
     const [powerTogglingServerId, setPowerTogglingServerId] = useState(null);
     const [checkingServerId, setCheckingServerId] = useState(null);
     const [alertNotice, setAlertNotice] = useState(null);
+    const [githubDeployOpen, setGithubDeployOpen] = useState(false);
+    const [deployTargetServerId, setDeployTargetServerId] = useState(null);
 
     // Modal state for adding new server
     const [addModalOpen, setAddModalOpen] = useState(false);
@@ -250,8 +253,19 @@ export default function ServersIndex({ servers: initialServers = [], projects = 
                         </Link>
                         <button
                             type="button"
+                            onClick={() => {
+                                setDeployTargetServerId(servers.length > 0 ? servers[0].id : null);
+                                setGithubDeployOpen(true);
+                            }}
+                            className="px-4 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-500 hover:from-indigo-500 hover:to-cyan-400 text-white text-xs font-semibold transition-all shadow-md shadow-indigo-600/30 flex items-center gap-1.5"
+                        >
+                            <Plus className="w-4 h-4" />
+                            <span>Deploy from GitHub</span>
+                        </button>
+                        <button
+                            type="button"
                             onClick={() => setAddModalOpen(true)}
-                            className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition-all shadow-md shadow-indigo-600/30 flex items-center gap-1.5"
+                            className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-white text-xs font-semibold transition-all flex items-center gap-1.5"
                         >
                             <Plus className="w-4 h-4" />
                             <span>Add New Server</span>
@@ -440,17 +454,32 @@ export default function ServersIndex({ servers: initialServers = [], projects = 
                                         </div>
 
                                         <div className="flex items-center justify-between gap-2 pt-1">
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setDeployTargetServerId(srv.id);
+                                                    setGithubDeployOpen(true);
+                                                }}
+                                                className="flex-1 justify-center px-2.5 py-1.5 rounded-lg bg-indigo-950/40 hover:bg-indigo-900/50 border border-indigo-500/30 text-indigo-300 hover:text-white text-xs font-semibold transition-colors flex items-center gap-1.5"
+                                                title="Deploy project from GitHub under server user"
+                                            >
+                                                <Plus className="w-3.5 h-3.5" />
+                                                <span>Deploy</span>
+                                            </button>
+
                                             <Link
                                                 href={`/metrics?server_id=${srv.id}`}
-                                                className="flex-1 justify-center px-3 py-1.5 rounded-lg bg-slate-900/80 hover:bg-slate-800 border border-slate-800/80 text-cyan-400 hover:text-cyan-300 text-xs font-medium transition-colors flex items-center gap-1.5"
+                                                className="px-2.5 py-1.5 rounded-lg bg-slate-900/80 hover:bg-slate-800 border border-slate-800/80 text-cyan-400 hover:text-cyan-300 text-xs font-medium transition-colors flex items-center gap-1.5"
+                                                title="Live Metrics"
                                             >
                                                 <Activity className="w-3.5 h-3.5" />
-                                                <span>Live Metrics</span>
+                                                <span>Metrics</span>
                                             </Link>
 
                                             <Link
                                                 href={`/dashboard`}
-                                                className="flex-1 justify-center px-3 py-1.5 rounded-lg bg-slate-900/80 hover:bg-slate-800 border border-slate-800/80 text-slate-300 hover:text-white text-xs font-medium transition-colors flex items-center gap-1.5"
+                                                className="px-2.5 py-1.5 rounded-lg bg-slate-900/80 hover:bg-slate-800 border border-slate-800/80 text-slate-300 hover:text-white text-xs font-medium transition-colors flex items-center gap-1.5"
+                                                title="Projects"
                                             >
                                                 <Layers className="w-3.5 h-3.5" />
                                                 <span>Projects ({hostedCount})</span>
@@ -633,6 +662,17 @@ export default function ServersIndex({ servers: initialServers = [], projects = 
                     </div>
                 </div>
             )}
+
+            {/* Deploy from GitHub Modal */}
+            <DeployGitHubModal
+                isOpen={githubDeployOpen}
+                onClose={() => setGithubDeployOpen(false)}
+                servers={servers}
+                initialServerId={deployTargetServerId}
+                onProjectDeployed={(newProj) => {
+                    triggerAlert(`Project '${newProj.name}' deployed under server user successfully.`, 'Project Deployed', 'success');
+                }}
+            />
         </AuthenticatedLayout>
     );
 }

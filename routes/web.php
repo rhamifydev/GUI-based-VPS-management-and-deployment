@@ -55,6 +55,10 @@ Route::middleware('auth')->group(function () {
     Route::post('/vps/projects/{id}/files', [VpsConnectionController::class, 'listProjectFiles'])->name('vps.projects.files');
     Route::post('/vps/projects/{id}/file-content', [VpsConnectionController::class, 'readProjectFile'])->name('vps.projects.file-content');
     Route::post('/vps/projects/{id}/save-file', [VpsConnectionController::class, 'saveProjectFile'])->name('vps.projects.save-file');
+
+    // GitHub repository integration & one-click deployment
+    Route::get('/vps/github/repos', [VpsConnectionController::class, 'getGitHubRepositories'])->name('vps.github.repos');
+    Route::post('/vps/projects/deploy-github', [VpsConnectionController::class, 'deployGitHubProject'])->name('vps.projects.deploy-github');
 });
 
 require __DIR__.'/auth.php';

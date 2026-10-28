@@ -2440,4 +2440,327 @@ BASH;
         if ($bytes < 1024 * 1024) return round($bytes / 1024, 1) . ' KB';
         return round($bytes / (1024 * 1024), 2) . ' MB';
     }
+
+    /**
+     * Fetch user's GitHub repositories for one-click deployment.
+     */
+    public function getGitHubRepositories(Request $request)
+    {
+        $user = auth()->user();
+        $inputToken = trim((string) $request->input('token'));
+        $token = $inputToken ?: ($user?->github_token ?: env('GITHUB_TOKEN'));
+        $username = $request->input('username') ?: ($user?->github_username ?: 'rhamifydev');
+
+        // Persist token if user supplied one in request
+        if (!empty($inputToken) && $user && $user->github_token !== $inputToken) {
+            $user->update(['github_token' => $inputToken]);
+        }
+
+        $headers = [
+            'User-Agent' => 'VPS-Deploy-Platform/1.0',
+            'Accept' => 'application/vnd.github.v3+json',
+        ];
+        if (!empty($token)) {
+            $headers['Authorization'] = 'Bearer ' . $token;
+        }
+
+        try {
+            $isLocal = app()->isLocal() || in_array(request()->getHost(), ['localhost', '127.0.0.1']);
+            $clientOptions = [
+                'headers' => $headers,
+                'timeout' => 15,
+                // Automatically disable verify on local development to avoid Windows cURL error 60
+                'verify' => !$isLocal && !empty(ini_get('curl.cainfo')),
+            ];
+
+            $client = new \GuzzleHttp\Client($clientOptions);
+            
+            // If token provided, query authenticated user's repos (includes private & public)
+            if (!empty($token)) {
+                $url = 'https://api.github.com/user/repos?sort=updated&per_page=100&affiliation=owner,collaborator,organization_member&visibility=all';
+            } else {
+                $url = "https://api.github.com/users/{$username}/repos?sort=updated&per_page=100";
+            }
+
+            try {
+                $response = $client->get($url);
+            } catch (\Throwable $curlErr) {
+                // Graceful fallback: If SSL certificate verification fails on localhost/Windows, retry with verify => false
+                if (str_contains($curlErr->getMessage(), 'cURL error 60') || str_contains(strtolower($curlErr->getMessage()), 'certificate')) {
+                    $fallbackClient = new \GuzzleHttp\Client(array_merge($clientOptions, ['verify' => false]));
+                    $response = $fallbackClient->get($url);
+                } else {
+                    throw $curlErr;
+                }
+            }
+
+            $rawRepos = json_decode($response->getBody(), true) ?: [];
+
+            $repos = array_map(function ($repo) {
+                $lang = $repo['language'] ?? 'Web';
+                $name = $repo['name'] ?? '';
+                $desc = $repo['description'] ?? '';
+
+                // Framework inference
+                $fw = 'static';
+                if ($lang === 'PHP') {
+                    $fw = 'laravel';
+                } elseif (in_array($lang, ['JavaScript', 'TypeScript'])) {
+                    $combined = strtolower($name . ' ' . $desc);
+                    if (str_contains($combined, 'next')) {
+                        $fw = 'nextjs';
+                    } elseif (str_contains($combined, 'vue') || str_contains($combined, 'nuxt')) {
+                        $fw = 'vue';
+                    } else {
+                        $fw = 'node';
+                    }
+                } elseif ($lang === 'Python') {
+                    $fw = 'python';
+                } elseif (in_array($lang, ['HTML', 'CSS'])) {
+                    $fw = 'static';
+                }
+
+                return [
+                    'id' => $repo['id'] ?? null,
+                    'name' => $name,
+                    'full_name' => $repo['full_name'] ?? $name,
+                    'description' => $desc,
+                    'clone_url' => $repo['clone_url'] ?? '',
+                    'ssh_url' => $repo['ssh_url'] ?? '',
+                    'html_url' => $repo['html_url'] ?? '',
+                    'default_branch' => $repo['default_branch'] ?? 'main',
+                    'language' => $lang,
+                    'framework' => $fw,
+                    'is_private' => (bool) ($repo['private'] ?? false),
+                    'stars' => $repo['stargazers_count'] ?? 0,
+                    'updated_at' => $repo['updated_at'] ?? null,
+                    'pushed_at' => $repo['pushed_at'] ?? null,
+                ];
+            }, $rawRepos);
+
+            return response()->json([
+                'success' => true,
+                'username' => $username,
+                'has_token' => !empty($token),
+                'repos' => $repos,
+            ]);
+        } catch (\GuzzleHttp\Exception\ClientException $e) {
+            $msg = $e->getResponse() ? (string) $e->getResponse()->getBody() : $e->getMessage();
+            return response()->json([
+                'success' => false,
+                'message' => 'GitHub API request failed: ' . $e->getMessage(),
+                'details' => $msg,
+            ], 400);
+        } catch (\Throwable $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to retrieve GitHub repositories: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * One-click clone and deploy GitHub repository under the user on remote VPS server.
+     */
+    public function deployGitHubProject(Request $request)
+    {
+        @set_time_limit(240);
+
+        $validated = $request->validate([
+            'server_id' => 'required|integer',
+            'repo_name' => 'required|string|max:255',
+            'git_url' => 'required|string',
+            'branch' => 'nullable|string|max:100',
+            'target_path' => 'nullable|string|max:500',
+            'framework' => 'nullable|string|in:laravel,node,nextjs,vue,python,static',
+            'domain' => 'nullable|string|max:255',
+        ]);
+
+        $server = Server::where('user_id', auth()->id())->where('id', $validated['server_id'])->first();
+        if (!$server) {
+            return response()->json(['success' => false, 'message' => 'Selected server not found.'], 404);
+        }
+
+        if (!$server->is_active) {
+            return response()->json([
+                'success' => false,
+                'message' => "Server '{$server->name}' is powered OFF. Please turn on the server first.",
+            ], 400);
+        }
+
+        $repoName = trim($validated['repo_name']);
+        $cleanSlug = strtolower(preg_replace('/[^a-zA-Z0-9_\-]/', '-', $repoName));
+        $serverUser = trim($server->user ?: 'root');
+        $branch = trim($validated['branch'] ?: 'main');
+        $gitUrl = trim($validated['git_url']);
+        $framework = $validated['framework'] ?: 'laravel';
+
+        // Target path under the user on the server
+        if (!empty($validated['target_path'])) {
+            $targetPath = rtrim(trim($validated['target_path']), '/\\');
+        } else {
+            // Default directly under user's home directory so it runs with complete user ownership
+            $targetPath = ($server->type === 'windows')
+                ? "C:\\inetpub\\wwwroot\\{$cleanSlug}"
+                : "/home/{$serverUser}/{$cleanSlug}";
+        }
+
+        $startTime = microtime(true);
+        $logs = [];
+
+        // Connect over SSH
+        $ssh = new SSH2($server->ip, (int) ($server->port ?: 22), 15);
+        $ssh->setTimeout(90); // 90s timeout per command for git clone and dependency builds
+        $authenticated = false;
+
+        if ($server->auth_method === 'key' || $server->auth_method === 'auto') {
+            $resolvedKey = $this->resolveSshKey($server->key_path, $server->key_content);
+            if ($resolvedKey) {
+                try {
+                    $key = $this->loadPrivateKeyFast($resolvedKey['content'], $server->key_passphrase ?: null);
+                    if ($key && $ssh->login($serverUser, $key)) {
+                        $authenticated = true;
+                    }
+                } catch (\Throwable $e) {}
+            }
+        }
+
+        if (!$authenticated && (!empty($server->password) || $server->auth_method === 'password')) {
+            if (!empty($server->password) && $ssh->login($serverUser, $server->password)) {
+                $authenticated = true;
+            }
+        }
+
+        if (!$authenticated) {
+            return response()->json([
+                'success' => false,
+                'message' => "SSH authentication failed for {$serverUser}@{$server->ip}. Check server credentials."
+            ], 401);
+        }
+
+        $user = auth()->user();
+        $token = $request->input('token') ?: ($user?->github_token ?: env('GITHUB_TOKEN'));
+
+        $effectiveGitUrl = $gitUrl;
+        if (!empty($token) && str_starts_with($gitUrl, 'https://github.com/')) {
+            $effectiveGitUrl = str_replace('https://github.com/', "https://{$token}@github.com/", $gitUrl);
+        }
+
+        $safePath = escapeshellarg($targetPath);
+        $safeBranch = escapeshellarg($branch);
+        $safeGitUrl = escapeshellarg($effectiveGitUrl);
+
+        // 1. Check if directory exists; clone or pull
+        $dirExists = trim((string) $ssh->exec("[ -d {$safePath} ] && echo 'yes' || echo 'no'"));
+        if ($dirExists === 'no') {
+            $logs[] = "Cloning {$repoName} from GitHub ({$branch}) into {$targetPath}...";
+            $cloneCmd = "mkdir -p $(dirname {$safePath}) && git clone -b {$safeBranch} {$safeGitUrl} {$safePath} 2>&1";
+            $cloneOutput = trim((string) $ssh->exec($cloneCmd));
+            $logs[] = $cloneOutput ?: "Repository cloned successfully.";
+        } else {
+            $logs[] = "Directory {$targetPath} already exists. Pulling latest {$branch} changes...";
+            $pullCmd = "cd {$safePath} && git fetch origin 2>&1 && git checkout {$safeBranch} 2>&1 && git pull origin {$safeBranch} 2>&1";
+            $pullOutput = trim((string) $ssh->exec($pullCmd));
+            $logs[] = $pullOutput ?: "Pulled latest changes.";
+        }
+
+        // 2. Automated framework setup & build under user
+        if ($framework === 'laravel') {
+            $logs[] = "Setting up Laravel environment and dependencies...";
+            $laravelSetup = $ssh->exec("
+                cd {$safePath}
+                if [ ! -f .env ] && [ -f .env.example ]; then
+                    cp .env.example .env
+                fi
+                if command -v composer >/dev/null 2>&1; then
+                    composer install --no-interaction --prefer-dist --optimize-autoloader 2>&1
+                fi
+                if [ -f artisan ]; then
+                    php artisan key:generate --force 2>&1
+                    php artisan optimize:clear 2>&1
+                fi
+            ");
+            if (!empty($laravelSetup)) $logs[] = trim((string) $laravelSetup);
+        } elseif (in_array($framework, ['node', 'nextjs', 'vue'])) {
+            $logs[] = "Installing Node.js dependencies...";
+            $nodeSetup = $ssh->exec("
+                cd {$safePath}
+                if command -v npm >/dev/null 2>&1 && [ -f package.json ]; then
+                    npm install --prefer-offline 2>&1
+                    if grep -q '\"build\":' package.json 2>/dev/null; then
+                        npm run build 2>&1
+                    fi
+                fi
+            ");
+            if (!empty($nodeSetup)) $logs[] = trim((string) $nodeSetup);
+        } elseif ($framework === 'python') {
+            $logs[] = "Configuring Python virtual environment...";
+            $pySetup = $ssh->exec("
+                cd {$safePath}
+                if [ -f requirements.txt ]; then
+                    python3 -m venv venv 2>&1 && ./venv/bin/pip install -r requirements.txt 2>&1
+                fi
+            ");
+            if (!empty($pySetup)) $logs[] = trim((string) $pySetup);
+        }
+
+        // 3. Extract commit hash & message
+        $commitInfo = trim((string) $ssh->exec("cd {$safePath} && git log -1 --pretty=format:'%h|%s' 2>/dev/null"));
+        $parts = explode('|', $commitInfo, 2);
+        $commitHash = !empty($parts[0]) ? $parts[0] : 'live';
+        $commitMsg = !empty($parts[1]) ? $parts[1] : "Deployed from GitHub ({$branch})";
+
+        $duration = round(microtime(true) - $startTime, 1) . 's';
+
+        // 4. Save or update Project in database
+        $project = Project::updateOrCreate(
+            [
+                'user_id' => auth()->id(),
+                'ip' => $server->ip,
+                'path' => $targetPath,
+            ],
+            [
+                'server_id' => $server->id,
+                'name' => $repoName,
+                'description' => "GitHub: {$repoName} deployed under {$serverUser}",
+                'port' => $server->port ?: 22,
+                'user' => $serverUser,
+                'auth_method' => $server->auth_method,
+                'key_path' => $server->key_path,
+                'password' => $server->password,
+                'key_passphrase' => $server->key_passphrase,
+                'os' => $server->os,
+                'type' => $server->type,
+                'branch' => $branch,
+                'commit' => $commitHash,
+                'commit_message' => $commitMsg,
+                'last_deploy_time' => now()->toIso8601String(),
+                'deploy_duration' => $duration,
+                'domain' => !empty($validated['domain']) ? trim($validated['domain']) : null,
+                'framework' => $framework,
+                'git_url' => $gitUrl,
+                'is_connected' => true,
+                'auth_status' => 'authenticated',
+                'last_auth_check_at' => now(),
+                'last_visited_timestamp' => round(microtime(true) * 1000),
+            ]
+        );
+
+        // Auto-probe live domain if empty
+        if (empty($project->domain)) {
+            try {
+                $this->performAuthCheck($project);
+            } catch (\Throwable $e) {}
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => "Successfully deployed '{$repoName}' to {$server->name} ({$targetPath}) under {$serverUser} in {$duration}!",
+            'project' => $project->fresh(),
+            'commit' => $commitHash,
+            'commit_message' => $commitMsg,
+            'duration' => $duration,
+            'output' => implode("\n", array_filter($logs)),
+        ]);
+    }
 }

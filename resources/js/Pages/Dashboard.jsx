@@ -41,9 +41,13 @@ import {
     ArrowUpRight,
     Pencil
 } from 'lucide-react';
+import DeployGitHubModal from '@/Components/DeployGitHubModal';
 
 export default function Dashboard({ initialProjects = [], initialServers = [] }) {
     const user = usePage().props.auth.user;
+
+    // GitHub Deploy modal state
+    const [githubDeployOpen, setGithubDeployOpen] = useState(false);
 
     // Quick deploy state
     const [isDeploying, setIsDeploying] = useState(false);
@@ -1329,15 +1333,16 @@ export default function Dashboard({ initialProjects = [], initialServers = [] })
                                     )}
                                     <button
                                         onClick={() => {
-                                            if (connectedServer) {
-                                                openServerExplorer('new');
+                                            if (servers && servers.length > 0) {
+                                                setGithubDeployOpen(true);
                                             } else {
                                                 setSelectedOs(null);
                                                 setSetupStep('credentials');
                                                 setSetupModalOpen(true);
                                             }
                                         }}
-                                        className="px-2.5 sm:px-3.5 py-1.5 rounded-lg sm:rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] sm:text-xs font-semibold transition-all shadow-md shadow-indigo-600/20 flex items-center gap-1.5"
+                                        className="px-2.5 sm:px-3.5 py-1.5 rounded-lg sm:rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-500 hover:from-indigo-500 hover:to-cyan-400 text-white text-[11px] sm:text-xs font-semibold transition-all shadow-md shadow-indigo-600/20 flex items-center gap-1.5"
+                                        title="Deploy project directly from GitHub"
                                     >
                                         <Plus className="w-3.5 h-3.5" />
                                         <span>New Project</span>
@@ -1997,10 +2002,39 @@ export default function Dashboard({ initialProjects = [], initialServers = [] })
 
                                 {/* Tab 2: Create New Project */}
                                 {explorerTab === 'new' && (
-                                    <form onSubmit={handleCreateNewProject} className="mt-5 space-y-4">
-                                        <div className="p-3 rounded-xl bg-indigo-950/20 border border-indigo-500/20 text-xs text-indigo-200">
-                                            Create a new deployment workspace on this VPS node. The system will set up directory permissions, git tracking, and web server bindings.
+                                    <div className="mt-5 space-y-4">
+                                        {/* GitHub Deploy Banner */}
+                                        <div className="p-4 rounded-2xl bg-gradient-to-r from-indigo-950/70 via-slate-900 to-cyan-950/50 border border-indigo-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-lg shadow-indigo-950/20">
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-cyan-500 p-[1px] shrink-0">
+                                                    <div className="w-full h-full bg-[#0E131F] rounded-[11px] flex items-center justify-center">
+                                                        <FolderGit2 className="w-5 h-5 text-indigo-400" />
+                                                    </div>
+                                                </div>
+                                                <div>
+                                                    <div className="flex items-center gap-2">
+                                                        <h5 className="text-xs font-bold text-white">Deploy directly from GitHub</h5>
+                                                        <span className="px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 text-[10px] font-semibold border border-indigo-500/30">Recommended</span>
+                                                    </div>
+                                                    <p className="text-[11px] text-slate-400 mt-0.5">
+                                                        Pick any repository from your GitHub account and deploy under this node's user automatically.
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setGithubDeployOpen(true);
+                                                    setExplorerOpen(false);
+                                                }}
+                                                className="px-4 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-500 hover:from-indigo-500 hover:to-cyan-400 text-white text-xs font-bold shadow-md shadow-indigo-600/30 transition-all flex items-center justify-center gap-1.5 shrink-0"
+                                            >
+                                                <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                                                <span>Deploy from GitHub</span>
+                                            </button>
                                         </div>
+
+                                        <form onSubmit={handleCreateNewProject} className="space-y-4 pt-2">
 
                                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                                             <div>
@@ -2094,7 +2128,8 @@ export default function Dashboard({ initialProjects = [], initialServers = [] })
                                             </button>
                                         </div>
                                     </form>
-                                )}
+                                </div>
+                            )}
 
                                 {/* Tab 3: Commands Executed on Server */}
                                 {explorerTab === 'logs' && (
@@ -3215,7 +3250,17 @@ export default function Dashboard({ initialProjects = [], initialServers = [] })
                 </div>
             )}
 
-
+            {/* Deploy from GitHub Modal */}
+            <DeployGitHubModal
+                isOpen={githubDeployOpen}
+                onClose={() => setGithubDeployOpen(false)}
+                servers={servers}
+                initialServerId={connectedServer ? connectedServer.id : (servers.length > 0 ? servers[0].id : null)}
+                onProjectDeployed={(newProj) => {
+                    setProjects(prev => [newProj, ...prev.filter(p => p.id !== newProj.id)]);
+                    triggerAlert(`Project '${newProj.name}' deployed under server user successfully!`, 'Project Deployed', 'success');
+                }}
+            />
         </AuthenticatedLayout>
     );
 }
