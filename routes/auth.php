@@ -13,9 +13,11 @@ Route::middleware('guest')->group(function () {
     Route::get('auth/github/callback', [GitHubAuthController::class, 'callback'])
         ->name('auth.github.callback');
 
-    // Instant development bypass (skips HTTPS/OAuth for local testing)
-    Route::get('auth/dev-bypass', [GitHubAuthController::class, 'devBypass'])
-        ->name('auth.dev-bypass');
+    // Development bypass (only registered in local development)
+    if (app()->isLocal() && config('app.debug')) {
+        Route::get('auth/dev-bypass', [GitHubAuthController::class, 'devBypass'])
+            ->name('auth.dev-bypass');
+    }
 
     // Display GitHub login screen
     Route::get('login', [AuthenticatedSessionController::class, 'create'])

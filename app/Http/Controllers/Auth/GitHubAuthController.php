@@ -13,13 +13,20 @@ use Laravel\Socialite\Facades\Socialite;
 class GitHubAuthController extends Controller
 {
     /**
-     * Redirect the user to the GitHub authentication page or dev bypass.
+     * Redirect the user to the GitHub OAuth authentication page.
      */
     public function redirect(Request $request): RedirectResponse
     {
-        // If explicitly requested or GitHub credentials are not configured, use dev bypass
-        if ($request->has('bypass') || empty(config('services.github.client_id')) || empty(config('services.github.client_secret'))) {
-            return $this->devBypass();
+        // Check GitHub OAuth configuration
+        if (empty(config('services.github.client_id')) || empty(config('services.github.client_secret'))) {
+            if (app()->isLocal() && config('app.debug') && $request->has('bypass')) {
+                return $this->devBypass();
+            }
+
+            return redirect()->route('login')->with(
+                'error',
+                'GitHub OAuth is not configured on this server. Please define GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET.'
+            );
         }
 
         try {
@@ -27,13 +34,15 @@ class GitHubAuthController extends Controller
                 ->scopes(['read:user', 'user:email', 'repo'])
                 ->redirect();
         } catch (Exception $e) {
-            // Fallback to dev bypass if SSL/HTTPS or network handshake fails
-            return $this->devBypass();
+            return redirect()->route('login')->with(
+                'error',
+                'Failed to initiate GitHub OAuth: ' . $e->getMessage()
+            );
         }
     }
 
     /**
-     * Obtain the user information from GitHub and authenticate.
+     * Obtain user information from GitHub callback and authenticate.
      */
     public function callback(): RedirectResponse
     {
@@ -60,16 +69,22 @@ class GitHubAuthController extends Controller
 
             return redirect()->intended(route('dashboard'));
         } catch (Exception $e) {
-            // Auto fallback to dev bypass if callback fails due to HTTP/HTTPS mismatch
-            return $this->devBypass();
+            return redirect()->route('login')->with(
+                'error',
+                'GitHub authentication failed: ' . $e->getMessage()
+            );
         }
     }
 
     /**
-     * Fast local development authentication bypass.
+     * Development authentication bypass (strictly restricted to local development).
      */
     public function devBypass(): RedirectResponse
     {
+        if (!app()->isLocal() || !config('app.debug')) {
+            abort(403, 'Development authentication bypass is strictly disabled in production.');
+        }
+
         $user = User::firstOrCreate(
             ['email' => 'dev@rhamify.com'],
             [

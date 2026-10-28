@@ -20,6 +20,7 @@ class AuthenticatedSessionController extends Controller
     {
         return Inertia::render('Auth/Login', [
             'githubConfigured' => !empty(config('services.github.client_id')) && !empty(config('services.github.client_secret')),
+            'devBypassAllowed' => app()->isLocal() && config('app.debug'),
             'status' => session('status'),
             'error' => session('error'),
         ]);

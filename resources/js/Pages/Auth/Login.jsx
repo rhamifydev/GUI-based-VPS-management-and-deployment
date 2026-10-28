@@ -2,13 +2,15 @@ import React from 'react';
 import { Head, Link } from '@inertiajs/react';
 import { Server, ArrowLeft, AlertCircle, Shield, CheckCircle2, GitBranch, Zap } from 'lucide-react';
 
-export default function Login({ status, error, githubConfigured }) {
+export default function Login({ status, error, githubConfigured, devBypassAllowed = false }) {
     const handleGitHubLogin = () => {
         window.location.href = route('auth.github');
     };
 
     const handleDevBypass = () => {
-        window.location.href = route('auth.dev-bypass');
+        if (devBypassAllowed) {
+            window.location.href = route('auth.dev-bypass');
+        }
     };
 
     return (
@@ -72,23 +74,8 @@ export default function Login({ status, error, githubConfigured }) {
                     <div className="space-y-4">
                         <button
                             type="button"
-                            onClick={handleDevBypass}
-                            className="w-full py-4 px-6 rounded-2xl bg-gradient-to-r from-indigo-600 via-indigo-500 to-cyan-500 hover:from-indigo-500 hover:to-cyan-400 text-white font-bold text-sm transition-all shadow-xl shadow-indigo-500/25 flex items-center justify-center gap-2.5 group"
-                        >
-                            <Zap className="w-4 h-4 fill-white" />
-                            <span>Quick Dev Login (Bypass HTTPS & OAuth)</span>
-                        </button>
-
-                        <div className="relative flex py-1 items-center">
-                            <div className="flex-grow border-t border-slate-800"></div>
-                            <span className="flex-shrink mx-3 text-[11px] text-slate-500 uppercase tracking-wider font-semibold">Or Live GitHub OAuth</span>
-                            <div className="flex-grow border-t border-slate-800"></div>
-                        </div>
-
-                        <button
-                            type="button"
                             onClick={handleGitHubLogin}
-                            className="w-full py-3.5 px-6 rounded-2xl bg-white hover:bg-slate-100 text-slate-900 font-bold text-sm transition-all shadow-md shadow-white/5 flex items-center justify-center gap-3 group"
+                            className="w-full py-4 px-6 rounded-2xl bg-white hover:bg-slate-100 text-slate-900 font-bold text-sm transition-all shadow-xl shadow-white/10 flex items-center justify-center gap-3 group"
                         >
                             {/* GitHub SVG Icon */}
                             <svg className="w-5 h-5 fill-current transition-transform group-hover:scale-110" viewBox="0 0 24 24">
@@ -97,9 +84,26 @@ export default function Login({ status, error, githubConfigured }) {
                             <span>Continue with GitHub</span>
                         </button>
 
-                        <div className="pt-1 text-center text-xs text-slate-400 leading-relaxed">
-                            No password needed. In development mode, the bypass logs you in instantly with sample developer credentials.
-                        </div>
+                        {devBypassAllowed && (
+                            <div className="pt-2">
+                                <div className="relative flex py-2 items-center">
+                                    <div className="flex-grow border-t border-slate-800"></div>
+                                    <span className="flex-shrink mx-3 text-[10px] text-slate-500 uppercase tracking-wider font-semibold font-mono">
+                                        Local Development Shortcut
+                                    </span>
+                                    <div className="flex-grow border-t border-slate-800"></div>
+                                </div>
+
+                                <button
+                                    type="button"
+                                    onClick={handleDevBypass}
+                                    className="w-full py-2.5 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 hover:text-white font-mono text-xs transition-colors flex items-center justify-center gap-2"
+                                >
+                                    <Zap className="w-3.5 h-3.5 text-amber-400" />
+                                    <span>Dev Bypass (Local Only)</span>
+                                </button>
+                            </div>
+                        )}
                     </div>
 
                     {/* Features list under card */}
