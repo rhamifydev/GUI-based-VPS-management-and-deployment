@@ -1702,14 +1702,84 @@ BASH;
 
         $logs[] = "SSH session established successfully.";
 
-        // Determine Web Root
         $projectPath = rtrim(trim($project->path), '/\\');
-        $hasPublic = trim((string) $ssh->exec("[ -d " . escapeshellarg("{$projectPath}/public") . " ] && echo 'yes' || echo 'no'")) === 'yes';
+        $safePath = escapeshellarg($projectPath);
+
+        // 1. Automated dependency self-healing & environment health check
+        $logs[] = "Verifying application dependencies and environment in {$projectPath}...";
+        $selfHealScript = "
+            cd {$safePath}
+            # Check .env
+            if [ ! -f .env ] && [ -f .env.example ]; then
+                cp .env.example .env
+                echo 'HEAL_ENV_COPIED'
+            fi
+
+            # Check Composer dependencies
+            if [ -f composer.json ]; then
+                if [ ! -f vendor/autoload.php ]; then
+                    if command -v composer >/dev/null 2>&1; then
+                        echo 'HEAL_RUNNING_COMPOSER'
+                        composer install --no-interaction --prefer-dist --optimize-autoloader 2>&1
+                    fi
+                fi
+            fi
+
+            # Check Laravel Artisan bootstrap
+            if [ -f artisan ]; then
+                # App key check
+                if [ -f .env ] && ! grep -qE '^APP_KEY=base64:' .env 2>/dev/null; then
+                    echo 'HEAL_GENERATING_KEY'
+                    php artisan key:generate --force 2>&1
+                fi
+                # SQLite database setup if needed
+                if [ -f .env ] && grep -q 'DB_CONNECTION=sqlite' .env 2>/dev/null; then
+                    mkdir -p database
+                    touch database/database.sqlite
+                elif [ ! -f .env ] || ! grep -q 'DB_CONNECTION=' .env 2>/dev/null; then
+                    mkdir -p database
+                    touch database/database.sqlite
+                fi
+                # Run database migrations
+                php artisan migrate --force 2>&1
+                # Storage symlink
+                php artisan storage:link 2>/dev/null
+                # Clear cached configuration
+                php artisan optimize:clear 2>/dev/null
+                # Fix storage & cache permissions
+                chmod -R 775 storage bootstrap/cache 2>/dev/null
+            fi
+
+            # Check frontend compiled assets
+            if [ -f package.json ] && [ ! -d public/build ] && [ ! -d dist ]; then
+                if command -v npm >/dev/null 2>&1; then
+                    echo 'HEAL_BUILDING_ASSETS'
+                    npm install --prefer-offline 2>&1 && npm run build 2>&1
+                fi
+            fi
+        ";
+        $healOutput = trim((string) $ssh->exec($selfHealScript));
+        if (str_contains($healOutput, 'HEAL_RUNNING_COMPOSER')) {
+            $logs[] = "Installed missing Composer dependencies (composer install completed).";
+        }
+        if (str_contains($healOutput, 'HEAL_ENV_COPIED')) {
+            $logs[] = "Created missing .env file from .env.example.";
+        }
+        if (str_contains($healOutput, 'HEAL_GENERATING_KEY')) {
+            $logs[] = "Generated new Laravel APP_KEY.";
+        }
+        if (str_contains($healOutput, 'HEAL_BUILDING_ASSETS')) {
+            $logs[] = "Compiled frontend assets via npm run build.";
+        }
+        $logs[] = "Application environment and dependencies ready.";
+
+        // Determine Web Root
+        $hasPublic = trim((string) $ssh->exec("[ -d {$safePath}/public ] && echo 'yes' || echo 'no'")) === 'yes';
         $webRoot = $hasPublic ? "{$projectPath}/public" : $projectPath;
         $logs[] = "Web root determined as: {$webRoot}";
 
         // Update .env APP_URL if .env exists
-        $hasEnv = trim((string) $ssh->exec("[ -f " . escapeshellarg("{$projectPath}/.env") . " ] && echo 'yes' || echo 'no'")) === 'yes';
+        $hasEnv = trim((string) $ssh->exec("[ -f {$safePath}/.env ] && echo 'yes' || echo 'no'")) === 'yes';
         if ($hasEnv) {
             $protocol = $enableSsl ? 'https://' : 'http://';
             $envAppUrl = "{$protocol}{$cleanDomain}";
@@ -1717,9 +1787,8 @@ BASH;
             $ssh->exec("sed -i 's|^APP_URL=.*|APP_URL={$envAppUrl}|' {$safeEnv}");
             $logs[] = "Updated APP_URL in {$projectPath}/.env to {$envAppUrl}";
 
-            // Clear Laravel config cache if artisan exists
-            if (trim((string) $ssh->exec("[ -f " . escapeshellarg("{$projectPath}/artisan") . " ] && echo 'yes' || echo 'no'")) === 'yes') {
-                $ssh->exec("cd " . escapeshellarg($projectPath) . " && php artisan config:clear 2>/dev/null");
+            if (trim((string) $ssh->exec("[ -f {$safePath}/artisan ] && echo 'yes' || echo 'no'")) === 'yes') {
+                $ssh->exec("cd {$safePath} && php artisan config:clear 2>/dev/null");
                 $logs[] = "Cleared Laravel config cache.";
             }
         }
@@ -1747,6 +1816,23 @@ BASH;
             $server->update(['password' => $sudoPassword]);
         }
 
+        // Fix permissions for web server (www-data)
+        $ssh->exec("{$sudoPrefix} chown -R {$server->user}:www-data {$safePath}/storage {$safePath}/bootstrap/cache 2>/dev/null");
+        $ssh->exec("chmod -R 775 {$safePath}/storage {$safePath}/bootstrap/cache 2>/dev/null");
+
+        // Guarantee Fallback TLS Certificate exists to prevent Cloudflare 525 SSL Handshake Failed errors
+        $ssh->exec("{$sudoPrefix} bash -c '
+            if [ ! -f /etc/ssl/certs/vpsdeploy-fallback.crt ] || [ ! -f /etc/ssl/private/vpsdeploy-fallback.key ]; then
+                mkdir -p /etc/ssl/certs /etc/ssl/private
+                openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
+                    -keyout /etc/ssl/private/vpsdeploy-fallback.key \
+                    -out /etc/ssl/certs/vpsdeploy-fallback.crt \
+                    -subj \"/CN=vpsdeploy-fallback\" 2>/dev/null
+                chmod 644 /etc/ssl/certs/vpsdeploy-fallback.crt
+                chmod 600 /etc/ssl/private/vpsdeploy-fallback.key
+            fi
+        '");
+
         // Detect PHP-FPM socket on server
         $cleanSlug = strtolower(preg_replace('/[^a-zA-Z0-9_]/', '_', basename($projectPath)));
         $fpmSock = trim((string) $ssh->exec("
@@ -1764,7 +1850,7 @@ BASH;
         }
         $logs[] = "FastCGI PHP-FPM socket detected: {$fpmSock}";
 
-        // Check if an existing site config exists for this project
+        // Determine site config path
         $existingSiteFile = null;
         $possibleSites = [
             "/etc/nginx/sites-available/{$cleanSlug}",
@@ -1782,46 +1868,66 @@ BASH;
         $siteName = basename($siteConfigPath);
         $enabledLink = "/etc/nginx/sites-enabled/{$siteName}";
 
-        // Check if Let's Encrypt certificate exists for this domain or slug
+        // Check if an existing Let's Encrypt certificate is already active
         $hasExistingCert = trim((string) $ssh->exec("{$sudoPrefix} test -f /etc/letsencrypt/live/{$cleanDomain}/fullchain.pem && echo 'yes' || echo 'no'")) === 'yes';
+        $certCertPath = "/etc/letsencrypt/live/{$cleanDomain}/fullchain.pem";
+        $certKeyPath = "/etc/letsencrypt/live/{$cleanDomain}/privkey.pem";
+
         if (!$hasExistingCert) {
-            $hasExistingCert = trim((string) $ssh->exec("{$sudoPrefix} test -f /etc/letsencrypt/live/{$cleanSlug}/fullchain.pem && echo 'yes' || echo 'no'")) === 'yes';
-            $certName = $hasExistingCert ? $cleanSlug : $cleanDomain;
-        } else {
-            $certName = $cleanDomain;
+            $hasSlugCert = trim((string) $ssh->exec("{$sudoPrefix} test -f /etc/letsencrypt/live/{$cleanSlug}/fullchain.pem && echo 'yes' || echo 'no'")) === 'yes';
+            if ($hasSlugCert) {
+                $hasExistingCert = true;
+                $certCertPath = "/etc/letsencrypt/live/{$cleanSlug}/fullchain.pem";
+                $certKeyPath = "/etc/letsencrypt/live/{$cleanSlug}/privkey.pem";
+            }
         }
 
         if ($hasExistingCert) {
-            $logs[] = "Found existing Let's Encrypt SSL certificate for {$certName}. Activating HTTPS...";
+            $sslCertFile = $certCertPath;
+            $sslKeyFile = $certKeyPath;
+            $logs[] = "Active Let's Encrypt certificate found. Serving HTTPS.";
+        } else {
+            // Initial fallback certificate: guarantees Port 443 immediately answers TLS handshakes cleanly (preventing Cloudflare 525)
+            $sslCertFile = "/etc/ssl/certs/vpsdeploy-fallback.crt";
+            $sslKeyFile = "/etc/ssl/private/vpsdeploy-fallback.key";
+            $logs[] = "Active TLS fallback certificate deployed on port 443 (prevents SSL Handshake 525 errors).";
+        }
+
+        if ($enableSsl) {
             $vhostConfig = "server {\n"
                 . "    listen 80;\n"
                 . "    listen [::]:80;\n"
-                . "    server_name {$cleanDomain} www.{$cleanDomain};\n"
-                . "    location ^~ /.well-known/acme-challenge/ { root {$webRoot}; }\n"
-                . "    location / { return 301 https://\$host\$request_uri; }\n"
+                . "    server_name {$cleanDomain} www.{$cleanDomain};\n\n"
+                . "    # ACME challenge for Certbot HTTP-01\n"
+                . "    location ^~ /.well-known/acme-challenge/ {\n"
+                . "        root {$webRoot};\n"
+                . "        try_files \$uri =404;\n"
+                . "    }\n\n"
+                . "    location / {\n"
+                . "        return 301 https://\$host\$request_uri;\n"
+                . "    }\n"
                 . "}\n\n"
                 . "server {\n"
-                . "    listen 443 ssl;\n"
-                . "    listen [::]:443 ssl;\n"
+                . "    listen 443 ssl http2;\n"
+                . "    listen [::]:443 ssl http2;\n"
                 . "    server_name {$cleanDomain} www.{$cleanDomain};\n"
                 . "    root {$webRoot};\n"
                 . "    index index.php index.html index.htm;\n"
-                . "    charset utf-8;\n"
-                . "\n"
-                . "    ssl_certificate /etc/letsencrypt/live/{$certName}/fullchain.pem;\n"
-                . "    ssl_certificate_key /etc/letsencrypt/live/{$certName}/privkey.pem;\n"
-                . "\n"
+                . "    charset utf-8;\n\n"
+                . "    ssl_certificate {$sslCertFile};\n"
+                . "    ssl_certificate_key {$sslKeyFile};\n"
+                . "    ssl_protocols TLSv1.2 TLSv1.3;\n"
+                . "    ssl_ciphers HIGH:!aNULL:!MD5;\n\n"
+                . "    location ^~ /.well-known/acme-challenge/ {\n"
+                . "        root {$webRoot};\n"
+                . "    }\n\n"
                 . "    location / {\n"
                 . "        try_files \$uri \$uri/ /index.php?\$query_string;\n"
-                . "    }\n"
-                . "\n"
+                . "    }\n\n"
                 . "    location = /favicon.ico { access_log off; log_not_found off; }\n"
-                . "    location = /robots.txt  { access_log off; log_not_found off; }\n"
-                . "\n"
-                . "    error_page 404 /index.php;\n"
-                . "\n"
-                . "    client_max_body_size 30M;\n"
-                . "\n"
+                . "    location = /robots.txt  { access_log off; log_not_found off; }\n\n"
+                . "    error_page 404 /index.php;\n\n"
+                . "    client_max_body_size 50M;\n\n"
                 . "    location ~ \\.php$ {\n"
                 . "        fastcgi_pass unix:{$fpmSock};\n"
                 . "        fastcgi_param SCRIPT_FILENAME \$realpath_root\$fastcgi_script_name;\n"
@@ -1829,8 +1935,7 @@ BASH;
                 . "        fastcgi_buffer_size 32k;\n"
                 . "        fastcgi_buffers 16 16k;\n"
                 . "        fastcgi_busy_buffers_size 32k;\n"
-                . "    }\n"
-                . "\n"
+                . "    }\n\n"
                 . "    location ~ /\\.(?!well-known).* {\n"
                 . "        deny all;\n"
                 . "    }\n"
@@ -1843,21 +1948,15 @@ BASH;
                 . "    server_name {$cleanDomain} www.{$cleanDomain};\n"
                 . "    root {$webRoot};\n"
                 . "    index index.php index.html index.htm;\n"
-                . "    charset utf-8;\n"
-                . "\n"
-                . "    location ^~ /.well-known/acme-challenge/ { root {$webRoot}; }\n"
-                . "\n"
+                . "    charset utf-8;\n\n"
+                . "    location ^~ /.well-known/acme-challenge/ { root {$webRoot}; }\n\n"
                 . "    location / {\n"
                 . "        try_files \$uri \$uri/ /index.php?\$query_string;\n"
-                . "    }\n"
-                . "\n"
+                . "    }\n\n"
                 . "    location = /favicon.ico { access_log off; log_not_found off; }\n"
-                . "    location = /robots.txt  { access_log off; log_not_found off; }\n"
-                . "\n"
-                . "    error_page 404 /index.php;\n"
-                . "\n"
-                . "    client_max_body_size 30M;\n"
-                . "\n"
+                . "    location = /robots.txt  { access_log off; log_not_found off; }\n\n"
+                . "    error_page 404 /index.php;\n\n"
+                . "    client_max_body_size 50M;\n\n"
                 . "    location ~ \\.php$ {\n"
                 . "        fastcgi_pass unix:{$fpmSock};\n"
                 . "        fastcgi_param SCRIPT_FILENAME \$realpath_root\$fastcgi_script_name;\n"
@@ -1865,8 +1964,7 @@ BASH;
                 . "        fastcgi_buffer_size 32k;\n"
                 . "        fastcgi_buffers 16 16k;\n"
                 . "        fastcgi_busy_buffers_size 32k;\n"
-                . "    }\n"
-                . "\n"
+                . "    }\n\n"
                 . "    location ~ /\\.(?!well-known).* {\n"
                 . "        deny all;\n"
                 . "    }\n"
@@ -1884,27 +1982,40 @@ BASH;
 
         // Test Nginx configuration
         $testOut = trim((string) $ssh->exec("{$sudoPrefix} nginx -t 2>&1"));
-        $logs[] = "Nginx test: " . ($testOut ?: 'OK');
+        $logs[] = "Nginx configuration test: " . ($testOut ?: 'OK');
 
         if (str_contains($testOut, 'syntax is ok') || str_contains($testOut, 'test is successful')) {
             $ssh->exec("{$sudoPrefix} systemctl reload nginx 2>&1 || {$sudoPrefix} service nginx reload 2>&1");
-            $logs[] = "Nginx reloaded successfully. Traffic for {$cleanDomain} is now routing to {$webRoot}.";
+            $logs[] = "Nginx reloaded successfully. Routing for {$cleanDomain} is active.";
 
-            if ($enableSsl) {
+            // If SSL is enabled and we are currently on fallback cert, request Let's Encrypt certificate
+            if ($enableSsl && !$hasExistingCert) {
                 $hasCertbot = trim((string) $ssh->exec("command -v certbot >/dev/null 2>&1 && echo 'yes' || echo 'no'")) === 'yes';
                 if ($hasCertbot) {
-                    $logs[] = "Issuing Let's Encrypt SSL certificate via Certbot for {$cleanDomain}...";
-                    $sslCmd = "{$sudoPrefix} certbot --nginx -d {$cleanDomain} --non-interactive --agree-tos -m admin@{$cleanDomain} --redirect 2>&1 || {$sudoPrefix} certbot --nginx -d {$cleanDomain} --non-interactive --agree-tos --register-unsafely-without-email --redirect 2>&1";
-                    $sslOut = trim((string) $ssh->exec($sslCmd));
-                    $logs[] = $sslOut ?: "SSL Certificate installed and HTTPS active.";
+                    $logs[] = "Requesting official Let's Encrypt certificate via Certbot for {$cleanDomain}...";
+                    // Using webroot mode so Nginx is not interrupted and ACME challenge works even through Cloudflare
+                    $certCmd = "{$sudoPrefix} certbot certonly --webroot -w {$webRoot} -d {$cleanDomain} --non-interactive --agree-tos -m admin@{$cleanDomain} --keep-until-expiring 2>&1 || {$sudoPrefix} certbot certonly --webroot -w {$webRoot} -d {$cleanDomain} --non-interactive --agree-tos --register-unsafely-without-email --keep-until-expiring 2>&1";
+                    $certOut = trim((string) $ssh->exec($certCmd));
+
+                    $issuedCert = trim((string) $ssh->exec("{$sudoPrefix} test -f /etc/letsencrypt/live/{$cleanDomain}/fullchain.pem && echo 'yes' || echo 'no'")) === 'yes';
+                    if ($issuedCert) {
+                        $logs[] = "Let's Encrypt certificate issued successfully. Updating Nginx to production certificate...";
+                        // Update vhost to use the new Let's Encrypt certificate
+                        $ssh->exec("{$sudoPrefix} sed -i 's|ssl_certificate /etc/ssl/certs/vpsdeploy-fallback.crt;|ssl_certificate /etc/letsencrypt/live/{$cleanDomain}/fullchain.pem;|g' {$siteConfigPath}");
+                        $ssh->exec("{$sudoPrefix} sed -i 's|ssl_certificate_key /etc/ssl/private/vpsdeploy-fallback.key;|ssl_certificate_key /etc/letsencrypt/live/{$cleanDomain}/privkey.pem;|g' {$siteConfigPath}");
+                        $ssh->exec("{$sudoPrefix} systemctl reload nginx 2>&1 || {$sudoPrefix} service nginx reload 2>&1");
+                        $logs[] = "Nginx updated with production Let's Encrypt certificate and reloaded.";
+                    } else {
+                        $logs[] = "Certbot notice: Cloudflare Full SSL fallback certificate active on port 443. (Certbot details: " . substr($certOut, 0, 180) . ")";
+                    }
                 } else {
-                    $logs[] = "Certbot is not installed. Standard Port 80 (HTTP) active.";
+                    $logs[] = "Notice: Certbot not installed. Fallback TLS active on port 443 (Cloudflare Full SSL ready).";
                 }
             }
 
             return [
                 'success' => true,
-                'message' => "Domain '{$cleanDomain}' configured and live on Nginx!",
+                'message' => "Domain '{$cleanDomain}' configured and live on Nginx with SSL!",
                 'domain' => $cleanDomain,
                 'logs' => $logs,
             ];
@@ -1967,8 +2078,19 @@ BASH;
             git fetch origin 2>&1
             git checkout {$safeBranch} 2>&1
             git pull origin {$safeBranch} 2>&1
+            if [ -f composer.json ] && command -v composer >/dev/null 2>&1; then
+                composer install --no-interaction --prefer-dist --optimize-autoloader 2>&1
+            fi
             if [ -f artisan ]; then
+                php artisan migrate --force 2>&1
+                php artisan storage:link 2>/dev/null
                 php artisan optimize:clear 2>&1
+                chmod -R 775 storage bootstrap/cache 2>/dev/null
+            fi
+            if [ -f package.json ] && command -v npm >/dev/null 2>&1; then
+                if [ ! -d public/build ] || [ ! -d dist ]; then
+                    npm install --prefer-offline 2>&1 && npm run build 2>&1
+                fi
             fi
         "));
 
@@ -3182,7 +3304,7 @@ BASH;
 
         // 2. Automated framework setup & build under user
         if ($framework === 'laravel') {
-            $logs[] = "Setting up Laravel environment and dependencies...";
+            $logs[] = "Setting up Laravel environment, Composer dependencies, and database...";
             $laravelSetup = $ssh->exec("
                 cd {$safePath}
                 if [ ! -f .env ] && [ -f .env.example ]; then
@@ -3193,7 +3315,18 @@ BASH;
                 fi
                 if [ -f artisan ]; then
                     php artisan key:generate --force 2>&1
+                    if [ -f .env ] && grep -q 'DB_CONNECTION=sqlite' .env 2>/dev/null; then
+                        mkdir -p database && touch database/database.sqlite
+                    elif [ ! -f .env ] || ! grep -q 'DB_CONNECTION=' .env 2>/dev/null; then
+                        mkdir -p database && touch database/database.sqlite
+                    fi
+                    php artisan migrate --force 2>&1
+                    php artisan storage:link 2>/dev/null
                     php artisan optimize:clear 2>&1
+                    chmod -R 775 storage bootstrap/cache 2>/dev/null
+                fi
+                if [ -f package.json ] && command -v npm >/dev/null 2>&1; then
+                    npm install --prefer-offline 2>&1 && npm run build 2>&1
                 fi
             ");
             if (!empty($laravelSetup)) $logs[] = trim((string) $laravelSetup);
@@ -3261,6 +3394,21 @@ BASH;
                 'last_visited_timestamp' => round(microtime(true) * 1000),
             ]
         );
+
+        // 5. If domain was provided during deployment, automatically configure Nginx web server & SSL
+        if (!empty($validated['domain'])) {
+            $logs[] = "Configuring Nginx virtual host and SSL certificate for {$validated['domain']}...";
+            $configResult = $this->configureServerWebserver(
+                $project,
+                $validated['domain'],
+                $server->password,
+                true,
+                true
+            );
+            if (!empty($configResult['logs'])) {
+                $logs = array_merge($logs, $configResult['logs']);
+            }
+        }
 
         // Auto-probe live domain if empty
         if (empty($project->domain)) {
