@@ -148,7 +148,7 @@ export default function Welcome({ auth, laravelVersion, phpVersion }) {
 
     return (
         <div className="min-h-screen bg-[#0A0D14] text-slate-100 font-sans selection:bg-indigo-500 selection:text-white">
-            <Head title="GUI-based VPS Management & Automated Deployment" />
+            <Head title="VPSDeploy - Manage • Deploy • Scale" />
 
             {/* Glowing ambient background grids */}
             <div className="fixed inset-0 pointer-events-none overflow-hidden z-0">
@@ -161,19 +161,19 @@ export default function Welcome({ auth, laravelVersion, phpVersion }) {
             {/* Top Navigation */}
             <header className="sticky top-0 z-50 backdrop-blur-xl bg-[#0A0D14]/90 border-b border-slate-800/80">
                 <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 h-16 sm:h-20 flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-                        <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-400 p-[1px] shadow-lg shadow-indigo-500/20 flex-shrink-0">
-                            <div className="w-full h-full bg-[#0E131F] rounded-[11px] flex items-center justify-center">
-                                <Server className="w-5 h-5 sm:w-6 sm:h-6 text-indigo-400" />
-                            </div>
-                        </div>
+                    <div className="flex items-center gap-2.5 sm:gap-3.5 min-w-0">
+                        <img
+                            src="/images/vpsdeploy-mark.png"
+                            alt="VPSDeploy Logo"
+                            className="w-9 h-9 sm:w-11 sm:h-11 rounded-xl object-contain shadow-lg shadow-indigo-500/25 flex-shrink-0"
+                        />
                         <div className="min-w-0">
-                            <span className="font-bold text-base sm:text-lg tracking-tight bg-gradient-to-r from-white via-slate-100 to-slate-400 bg-clip-text text-transparent truncate block">
-                                VPS<span className="text-indigo-400">Deploy</span> GUI
+                            <span className="font-bold text-base sm:text-lg tracking-tight bg-gradient-to-r from-white via-slate-100 to-slate-300 bg-clip-text text-transparent truncate block leading-tight">
+                                VPS<span className="text-cyan-400">Deploy</span>
                             </span>
-                            <div className="hidden sm:flex items-center gap-1.5 text-xs text-slate-400">
-                                <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                                <span>Self-Hosted Automation Engine</span>
+                            <div className="flex items-center gap-1.5 text-[11px] sm:text-xs text-slate-400 font-mono">
+                                <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                                <span>Manage • Deploy • Scale</span>
                             </div>
                         </div>
                     </div>
@@ -1084,9 +1084,13 @@ export default function Welcome({ auth, laravelVersion, phpVersion }) {
             {/* Footer */}
             <footer className="border-t border-slate-800/80 bg-[#080B12] py-12 px-4 sm:px-6 lg:px-8 text-center text-xs text-slate-400">
                 <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
-                    <div className="flex items-center gap-2 font-semibold text-slate-300">
-                        <Server className="w-4 h-4 text-indigo-400" />
-                        <span>VPS Deploy GUI &bull; Automated Infrastructure Platform</span>
+                    <div className="flex items-center gap-2.5 font-semibold text-slate-300">
+                        <img
+                            src="/images/vpsdeploy-mark.png"
+                            alt="VPSDeploy"
+                            className="w-5 h-5 rounded-md object-contain"
+                        />
+                        <span>VPSDeploy &bull; Manage &bull; Deploy &bull; Scale</span>
                     </div>
                     <div>
                         Powered by{' '}

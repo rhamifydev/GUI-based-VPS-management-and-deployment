@@ -102,15 +102,20 @@ export default function AuthenticatedLayout({ children }) {
         <div className="flex flex-col h-full bg-[#0E131F] text-slate-200 border-l md:border-l-0 md:border-r border-slate-800/80">
             {/* Top Logo & Close Button */}
             <div className="h-16 px-6 flex items-center justify-between border-b border-slate-800/80">
-                <Link href="/" className="flex items-center gap-2.5 group">
-                    <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-400 p-[1px] shadow-lg shadow-indigo-500/20 group-hover:scale-105 transition-transform">
-                        <div className="w-full h-full bg-[#090C15] rounded-[11px] flex items-center justify-center">
-                            <Server className="w-5 h-5 text-indigo-400" />
-                        </div>
+                <Link href="/" className="flex items-center gap-3 group">
+                    <img
+                        src="/images/vpsdeploy-mark.png"
+                        alt="VPSDeploy"
+                        className="w-10 h-10 rounded-xl object-contain shadow-lg shadow-indigo-500/20 group-hover:scale-105 transition-transform"
+                    />
+                    <div className="flex flex-col">
+                        <span className="font-heading font-extrabold text-base tracking-tight text-white leading-tight">
+                            VPS<span className="text-cyan-400">Deploy</span>
+                        </span>
+                        <span className="text-[9px] font-mono text-slate-400 tracking-wider">
+                            Manage • Deploy • Scale
+                        </span>
                     </div>
-                    <span className="font-heading font-extrabold text-base tracking-tight text-white">
-                        VPS<span className="text-indigo-400">Deploy</span>
-                    </span>
                 </Link>
 
                 {/* Mobile Close Button (on the right drawer) */}
@@ -266,14 +271,19 @@ export default function AuthenticatedLayout({ children }) {
             {/* Mobile Top Bar (No generic header, just brand & right-drawer trigger) */}
             <div className="md:hidden sticky top-0 z-20 flex items-center justify-between px-4 h-16 bg-[#0E131F] border-b border-slate-800">
                 <Link href="/" className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-indigo-600 to-cyan-500 p-[1px]">
-                        <div className="w-full h-full bg-[#0E131F] rounded-[7px] flex items-center justify-center">
-                            <Server className="w-4 h-4 text-indigo-400" />
-                        </div>
+                    <img
+                        src="/images/vpsdeploy-mark.png"
+                        alt="VPSDeploy"
+                        className="w-8 h-8 rounded-lg object-contain shadow-md"
+                    />
+                    <div className="flex flex-col">
+                        <span className="font-heading font-extrabold text-sm text-white leading-tight">
+                            VPS<span className="text-cyan-400">Deploy</span>
+                        </span>
+                        <span className="text-[8px] font-mono text-slate-400 tracking-wider">
+                            Manage • Deploy • Scale
+                        </span>
                     </div>
-                    <span className="font-heading font-extrabold text-sm text-white">
-                        VPS<span className="text-indigo-400">Deploy</span>
-                    </span>
                 </Link>
 
                 {/* Right Drawer Trigger Button on Mobile */}

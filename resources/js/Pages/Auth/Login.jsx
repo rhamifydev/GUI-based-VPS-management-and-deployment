@@ -25,17 +25,14 @@ export default function Login({ status, error, githubConfigured }) {
             <div className="relative z-10 w-full max-w-md">
                 {/* Brand Logo & Title */}
                 <div className="text-center mb-8">
-                    <Link href="/" className="inline-flex items-center gap-3 group">
-                        <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-400 p-[1px] shadow-xl shadow-indigo-500/25 group-hover:scale-105 transition-transform">
-                            <div className="w-full h-full bg-[#0E131F] rounded-[15px] flex items-center justify-center">
-                                <Server className="w-6 h-6 text-indigo-400" />
-                            </div>
-                        </div>
-                        <span className="font-bold text-2xl tracking-tight bg-gradient-to-r from-white via-slate-100 to-slate-400 bg-clip-text text-transparent">
-                            VPS<span className="text-indigo-400">Deploy</span> GUI
-                        </span>
+                    <Link href="/" className="inline-flex flex-col items-center gap-2 group">
+                        <img
+                            src="/images/vpsdeploy-logo.png"
+                            alt="VPSDeploy - Manage • Deploy • Scale"
+                            className="w-48 max-w-[200px] h-auto rounded-2xl object-contain drop-shadow-[0_10px_25px_rgba(99,102,241,0.35)] group-hover:scale-105 transition-transform"
+                        />
                     </Link>
-                    <p className="mt-3 text-sm text-slate-400">
+                    <p className="mt-2 text-xs font-mono text-slate-400">
                         Secure Authentication via GitHub OAuth
                     </p>
                 </div>
