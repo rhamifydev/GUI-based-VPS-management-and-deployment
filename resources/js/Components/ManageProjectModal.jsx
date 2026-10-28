@@ -675,7 +675,7 @@ export default function ManageProjectModal({
                             </div>
 
                             {/* 1-Click Install to GitHub */}
-                            {project.git_url && project.git_url.includes('github.com') && (
+                            {(!project.git_url || project.git_url.includes('github.com')) && (
                                 <div className="p-3.5 bg-gradient-to-r from-purple-950/30 via-slate-900 to-slate-900 border border-purple-500/30 rounded-xl flex items-center justify-between gap-3">
                                     <div>
                                         <div className="text-xs font-semibold text-white flex items-center gap-2">

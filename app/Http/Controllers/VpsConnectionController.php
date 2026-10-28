@@ -3638,17 +3638,50 @@ BASH;
         }
 
         $gitUrl = $project->git_url;
+
+        // Auto-detect remote git origin URL over SSH if not stored in database
+        if (empty($gitUrl) && !empty($project->path)) {
+            $server = $project->server ?? Server::where('ip', $project->ip)->first();
+            if ($server && $server->is_active) {
+                $ssh = new SSH2($server->ip, (int) ($server->port ?: 22), 15);
+                $authenticated = false;
+                if ($server->auth_method === 'key' || $server->auth_method === 'auto') {
+                    $resolvedKey = $this->resolveSshKey($server->key_path, $server->key_content);
+                    if ($resolvedKey) {
+                        try {
+                            $key = $this->loadPrivateKeyFast($resolvedKey['content'], $server->key_passphrase ?: null);
+                            if ($key && $ssh->login($server->user, $key)) $authenticated = true;
+                        } catch (\Throwable $e) {}
+                    }
+                }
+                if (!$authenticated && !empty($server->password)) {
+                    if ($ssh->login($server->user, $server->password)) $authenticated = true;
+                }
+                if ($authenticated) {
+                    $detectedUrl = trim((string) $ssh->exec("cd " . escapeshellarg($project->path) . " && git config --get remote.origin.url 2>/dev/null"));
+                    if (!empty($detectedUrl)) {
+                        $gitUrl = $detectedUrl;
+                        $project->update(['git_url' => $detectedUrl]);
+                    }
+                }
+            }
+        }
+
         if (empty($gitUrl)) {
             return response()->json(['success' => false, 'message' => 'No GitHub repository URL associated with this project.'], 400);
         }
 
         if (!preg_match('#github\.com[:/]([^/]+)/([^/\.]+)(?:\.git)?#i', $gitUrl, $matches)) {
-            return response()->json(['success' => false, 'message' => 'Could not determine owner/repository from git URL.'], 400);
+            return response()->json(['success' => false, 'message' => "Could not extract GitHub repository name from {$gitUrl}."], 400);
         }
 
         $owner = $matches[1];
         $repo = $matches[2];
-        $webhookUrl = $project->webhook_url;
+
+        // Ensure public production domain is used for GitHub callback
+        $webhookUrl = !empty($project->webhook_url) && !str_contains($project->webhook_url, 'localhost')
+            ? $project->webhook_url
+            : "https://vps.rhamify.com/api/webhooks/deploy/{$project->id}?token={$project->deploy_token}";
 
         // Call GitHub API to create webhook
         $ch = curl_init("https://api.github.com/repos/{$owner}/{$repo}/hooks");
