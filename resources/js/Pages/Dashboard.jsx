@@ -72,6 +72,9 @@ export default function Dashboard({ initialProjects = [], initialServers = [] })
     const [keyPassphrase, setKeyPassphrase] = useState('');
     const [showPassphrasePrompt, setShowPassphrasePrompt] = useState(false);
     const [passphraseKeyName, setPassphraseKeyName] = useState('');
+    const [showPasswordPrompt, setShowPasswordPrompt] = useState(false);
+    const [passwordPromptUser, setPasswordPromptUser] = useState('');
+    const [interactivePassword, setInteractivePassword] = useState('');
     const [showLinuxBootstrap, setShowLinuxBootstrap] = useState(false);
 
     // Root prompt & sub-account creation state for Linux
@@ -772,10 +775,6 @@ export default function Dashboard({ initialProjects = [], initialServers = [] })
                 triggerAlert('Please enter your SSH account password to proceed.', 'Password Required', 'warning');
                 return;
             }
-            if (user === 'root') {
-                setShowRootPrompt(true);
-                return;
-            }
             handleTestAndConnect('linux');
         } else {
             if (!windowsIp || !windowsIp.trim()) {
@@ -803,11 +802,11 @@ export default function Dashboard({ initialProjects = [], initialServers = [] })
         }
     };
 
-    const handleTestAndConnect = async (os, userOverride = null, passphraseOverride = null) => {
+    const handleTestAndConnect = async (os, userOverride = null, passphraseOverride = null, passwordOverride = null) => {
         const targetUser = (userOverride || (os === 'linux' ? linuxUser : windowsUser) || '').trim();
         const targetIp = (os === 'linux' ? linuxIp : windowsIp || '').trim();
         const targetPort = (os === 'linux' ? linuxPort : windowsPort || '22').trim();
-        const targetPassword = os === 'linux' ? linuxPassword : windowsPassword;
+        const targetPassword = passwordOverride !== null ? passwordOverride : (os === 'linux' ? linuxPassword : windowsPassword);
         const targetKeyPath = os === 'linux' && authMethod === 'custom_key' ? linuxKey : '';
         const currentPassphrase = passphraseOverride !== null ? passphraseOverride : keyPassphrase;
 
@@ -857,7 +856,21 @@ export default function Dashboard({ initialProjects = [], initialServers = [] })
                 setIsTestingConnection(false);
                 setTestLog(null);
                 setShowPassphrasePrompt(true);
+                setShowPasswordPrompt(false);
                 setPassphraseKeyName(data.key_name || 'id_ed25519');
+                if (data.commands && Array.isArray(data.commands)) {
+                    setLiveCommandLogs(data.commands);
+                }
+                return;
+            }
+
+            // Check if remote host requires interactive password input
+            if (data.requires_password) {
+                setIsTestingConnection(false);
+                setTestLog(null);
+                setShowPassphrasePrompt(false);
+                setShowPasswordPrompt(true);
+                setPasswordPromptUser(data.user || targetUser);
                 if (data.commands && Array.isArray(data.commands)) {
                     setLiveCommandLogs(data.commands);
                 }
@@ -868,6 +881,7 @@ export default function Dashboard({ initialProjects = [], initialServers = [] })
                 setIsTestingConnection(false);
                 setTestLog(null);
                 setShowPassphrasePrompt(false);
+                setShowPasswordPrompt(false);
                 if (data.commands && Array.isArray(data.commands)) {
                     setLiveCommandLogs(data.commands);
                 } else {
@@ -892,7 +906,9 @@ export default function Dashboard({ initialProjects = [], initialServers = [] })
             setIsTestingConnection(false);
             setTestLog(null);
             setShowPassphrasePrompt(false);
+            setShowPasswordPrompt(false);
             setKeyPassphrase('');
+            setInteractivePassword('');
             if (data.commands && Array.isArray(data.commands)) {
                 setLiveCommandLogs(data.commands);
             }
@@ -948,6 +964,22 @@ export default function Dashboard({ initialProjects = [], initialServers = [] })
             return;
         }
         handleTestAndConnect('linux', null, keyPassphrase);
+    };
+
+    const handlePasswordSubmit = (e) => {
+        if (e) e.preventDefault();
+        if (!interactivePassword) {
+            triggerAlert('Please enter the SSH password.', 'Password Required', 'warning');
+            return;
+        }
+        setShowPasswordPrompt(false);
+        const currentOs = selectedOs || 'linux';
+        if (currentOs === 'linux') {
+            setLinuxPassword(interactivePassword);
+        } else {
+            setWindowsPassword(interactivePassword);
+        }
+        handleTestAndConnect(currentOs, passwordPromptUser || null, null, interactivePassword);
     };
 
     const handleSelectServerFolder = async (folder) => {
@@ -2496,6 +2528,7 @@ export default function Dashboard({ initialProjects = [], initialServers = [] })
                                                     type="button"
                                                     onClick={() => {
                                                         setShowRootPrompt(false);
+                                                        setLinuxUser('root');
                                                         handleTestAndConnect('linux', 'root');
                                                     }}
                                                     className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium transition-colors"
@@ -2571,10 +2604,13 @@ export default function Dashboard({ initialProjects = [], initialServers = [] })
                                                                 return;
                                                             }
                                                             setLinuxUser(newAccountUser.trim());
+                                                            setLinuxPassword(newAccountPassword.trim());
+                                                            setAuthMethod('password');
                                                             setShowRootPrompt(false);
                                                             setShowNewAccountForm(false);
                                                             setAccountCreatedSuccess(true);
-                                                            handleTestAndConnect('linux', newAccountUser.trim());
+                                                            triggerAlert(`Please ensure user '${newAccountUser.trim()}' exists on your VPS. If it was not created yet, log in as root first.`, 'Sub-Account Selected', 'info');
+                                                            handleTestAndConnect('linux', newAccountUser.trim(), null, newAccountPassword.trim());
                                                         }}
                                                         className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-all shadow-md flex items-center gap-1.5"
                                                     >
@@ -2807,6 +2843,46 @@ export default function Dashboard({ initialProjects = [], initialServers = [] })
                                                                 value={keyPassphrase}
                                                                 onChange={(e) => setKeyPassphrase(e.target.value)}
                                                                 placeholder="Enter key passphrase"
+                                                                className="w-full min-w-0 px-3 py-2 bg-[#0E131F] border border-indigo-500/40 rounded-lg text-white font-mono text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 placeholder:text-slate-500"
+                                                            />
+                                                        </div>
+                                                        <button
+                                                            type="submit"
+                                                            disabled={isTestingConnection}
+                                                            className="flex-shrink-0 whitespace-nowrap px-3.5 sm:px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors shadow-md shadow-indigo-600/30"
+                                                        >
+                                                            {isTestingConnection ? (
+                                                                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                                            ) : (
+                                                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                                            )}
+                                                            <span>Connect</span>
+                                                        </button>
+                                                    </div>
+                                                </form>
+                                            )}
+
+                                            {/* Interactive Password Prompt inside Terminal console */}
+                                            {showPasswordPrompt && (
+                                                <form
+                                                    onSubmit={handlePasswordSubmit}
+                                                    className="p-3 bg-indigo-950/40 border border-indigo-500/40 rounded-xl space-y-2 animate-in fade-in duration-200"
+                                                >
+                                                    <div className="flex items-start sm:items-center gap-2 text-xs font-bold text-indigo-300">
+                                                        <Key className="w-4 h-4 text-indigo-400 flex-shrink-0 mt-0.5 sm:mt-0" />
+                                                        <span className="break-words">Enter SSH password for {passwordPromptUser || linuxUser}@{linuxIp}:</span>
+                                                    </div>
+                                                    <p className="text-[11px] text-slate-400 leading-relaxed">
+                                                        Public key was rejected or not available. Please enter the SSH account password below to connect.
+                                                    </p>
+                                                    <div className="flex items-center gap-2 w-full">
+                                                        <div className="flex-1 min-w-0">
+                                                            <input
+                                                                type="password"
+                                                                autoFocus
+                                                                value={interactivePassword}
+                                                                onChange={(e) => setInteractivePassword(e.target.value)}
+                                                                placeholder="Enter SSH password"
                                                                 className="w-full min-w-0 px-3 py-2 bg-[#0E131F] border border-indigo-500/40 rounded-lg text-white font-mono text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 placeholder:text-slate-500"
                                                             />
                                                         </div>

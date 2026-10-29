@@ -145,16 +145,72 @@ class VpsConnectionController extends Controller
                 if ($password === '') {
                     return response()->json([
                         'success' => false,
-                        'message' => 'Password is required when using password authentication.',
-                    ], 422);
+                        'requires_password' => true,
+                        'user' => $user,
+                        'ip' => $ip,
+                        'message' => "Password is required to connect to {$user}@{$ip}.",
+                        'commands' => [
+                            [
+                                'time' => date('H:i:s'),
+                                'cmd' => $displayCmd,
+                                'status' => 'prompt',
+                                'output' => "Please enter the password for {$user}@{$ip}:"
+                            ]
+                        ]
+                    ], 401);
                 }
 
                 if ($ssh->login($user, $password)) {
                     $authenticated = true;
                     $authMethod = 'password';
                 } else {
-                    $lastError = $this->getSshLastError($ssh, 'Password rejected by remote server.');
+                    $allowedMethods = $ssh->getAuthMethodsToContinue();
+                    if (is_array($allowedMethods) && !in_array('password', $allowedMethods) && !in_array('keyboard-interactive', $allowedMethods)) {
+                        $allowedStr = implode(', ', $allowedMethods);
+                        $lastError = "Password authentication is disabled on {$ip} (Server only permits: {$allowedStr}). You must authenticate using an authorized SSH private key.";
+                    } else {
+                        $userHint = $user !== 'root' ? " Please verify your password. If user '{$user}' has not been created on the VPS yet, connect as 'root' first." : " Please verify that the root password is correct.";
+                        $lastError = $this->getSshLastError($ssh, 'Password rejected by remote server.') . $userHint;
+                    }
                 }
+            }
+
+            // 3. If in auto mode, key was rejected or not present, and no password was provided: prompt user for password!
+            if (!$authenticated && empty($validated['password']) && $authMethod === 'auto') {
+                $allowedMethods = $ssh->getAuthMethodsToContinue();
+                $serverAllowsPassword = is_array($allowedMethods) ? (in_array('password', $allowedMethods) || in_array('keyboard-interactive', $allowedMethods)) : true;
+
+                if (!$serverAllowsPassword) {
+                    $allowedStr = implode(', ', $allowedMethods);
+                    return response()->json([
+                        'success' => false,
+                        'message' => "Public key rejected and remote server at {$ip} does not allow password authentication (Server only allows: {$allowedStr}). You must provide an authorized SSH private key.",
+                        'commands' => [
+                            [
+                                'time' => date('H:i:s'),
+                                'cmd' => $displayCmd,
+                                'status' => 'failed',
+                                'output' => "Public key authentication failed. Server rejected password auth (Allowed methods: {$allowedStr})."
+                            ]
+                        ]
+                    ], 401);
+                }
+
+                return response()->json([
+                    'success' => false,
+                    'requires_password' => true,
+                    'user' => $user,
+                    'ip' => $ip,
+                    'message' => "Enter password for {$user}@{$ip}:",
+                    'commands' => [
+                        [
+                            'time' => date('H:i:s'),
+                            'cmd' => $displayCmd,
+                            'status' => 'prompt',
+                            'output' => "Auto-detected SSH key not authorized on {$ip}.\nEnter password for {$user}@{$ip}:"
+                        ]
+                    ]
+                ], 401);
             }
 
             if (!$authenticated) {
