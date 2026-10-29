@@ -120,7 +120,7 @@ class VpsConnectionController extends Controller
                             $authenticated = true;
                             $authMethod = 'key';
                         } else {
-                            $lastError = $ssh->getLastError() ?: 'Public key authentication rejected by remote server.';
+                            $lastError = $this->getSshLastError($ssh, 'Public key authentication rejected by remote server.');
                         }
                     }
                 } elseif ($authMethod === 'key') {
@@ -153,7 +153,7 @@ class VpsConnectionController extends Controller
                     $authenticated = true;
                     $authMethod = 'password';
                 } else {
-                    $lastError = $ssh->getLastError() ?: 'Password rejected by remote server.';
+                    $lastError = $this->getSshLastError($ssh, 'Password rejected by remote server.');
                 }
             }
 
@@ -1217,7 +1217,7 @@ BASH;
                         if ($ssh->login($user, $key)) {
                             $authenticated = true;
                         } else {
-                            $err = $ssh->getLastError() ?: 'Public key rejected.';
+                            $err = $this->getSshLastError($ssh, 'Public key rejected.');
                         }
                     } catch (\Throwable $e) {
                         $err = 'Key load error: ' . $e->getMessage();
@@ -1229,7 +1229,7 @@ BASH;
                 if (!empty($server->password) && $ssh->login($user, $server->password)) {
                     $authenticated = true;
                 } else {
-                    $err = $ssh->getLastError() ?: 'Password rejected.';
+                    $err = $this->getSshLastError($ssh, 'Password rejected.');
                 }
             }
 
@@ -2216,7 +2216,7 @@ BASH;
                         if ($ssh->login($user, $key)) {
                             $authenticated = true;
                         } else {
-                            $lastError = $ssh->getLastError() ?: 'Public key rejected.';
+                            $lastError = $this->getSshLastError($ssh, 'Public key rejected.');
                         }
                     } catch (\Throwable $e) {
                         $lastError = 'Key load/passphrase error: ' . $e->getMessage();
@@ -2229,7 +2229,7 @@ BASH;
                 if (!empty($project->password) && $ssh->login($user, $project->password)) {
                     $authenticated = true;
                 } else {
-                    $lastError = $ssh->getLastError() ?: 'Password rejected.';
+                    $lastError = $this->getSshLastError($ssh, 'Password rejected.');
                 }
             }
 
@@ -2672,6 +2672,29 @@ BASH;
         } catch (\Throwable $e) {}
 
         return $key;
+    }
+
+    /**
+     * Safely extract the last SSH error message or banner from a phpseclib SSH2 instance.
+     * Prevents fatal "Call to undefined method phpseclib4\Net\SSH2::getLastError()" exceptions.
+     */
+    private function getSshLastError($ssh, string $default = 'Authentication rejected by remote host.'): string
+    {
+        if (is_object($ssh)) {
+            if (method_exists($ssh, 'getLastError')) {
+                $err = $ssh->getLastError();
+                if (!empty($err) && is_string($err)) {
+                    return trim($err);
+                }
+            }
+            if (method_exists($ssh, 'getBannerMessage')) {
+                $banner = $ssh->getBannerMessage();
+                if (!empty($banner) && is_string($banner)) {
+                    return trim($banner);
+                }
+            }
+        }
+        return $default;
     }
 
     /**
