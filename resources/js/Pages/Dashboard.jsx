@@ -40,7 +40,8 @@ import {
     Sliders,
     ArrowUpRight,
     Pencil,
-    Settings
+    Settings,
+    Upload
 } from 'lucide-react';
 import DeployGitHubModal from '@/Components/DeployGitHubModal';
 import ManageProjectModal from '@/Components/ManageProjectModal';
@@ -69,6 +70,8 @@ export default function Dashboard({ initialProjects = [], initialServers = [] })
     const [linuxUser, setLinuxUser] = useState('');
     const [linuxPassword, setLinuxPassword] = useState('');
     const [linuxKey, setLinuxKey] = useState('');
+    const [linuxKeyContent, setLinuxKeyContent] = useState('');
+    const [uploadedKeyFileName, setUploadedKeyFileName] = useState('');
     const [keyPassphrase, setKeyPassphrase] = useState('');
     const [showPassphrasePrompt, setShowPassphrasePrompt] = useState(false);
     const [passphraseKeyName, setPassphraseKeyName] = useState('');
@@ -76,6 +79,21 @@ export default function Dashboard({ initialProjects = [], initialServers = [] })
     const [passwordPromptUser, setPasswordPromptUser] = useState('');
     const [interactivePassword, setInteractivePassword] = useState('');
     const [showLinuxBootstrap, setShowLinuxBootstrap] = useState(false);
+
+    const handleKeyFileUpload = (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        setUploadedKeyFileName(file.name);
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            const text = event.target?.result;
+            if (typeof text === 'string') {
+                setLinuxKeyContent(text.trim());
+                triggerAlert(`Loaded key file: ${file.name}`, 'Key Loaded', 'success');
+            }
+        };
+        reader.readAsText(file);
+    };
 
     // Root prompt & sub-account creation state for Linux
     const [showRootPrompt, setShowRootPrompt] = useState(false);
@@ -771,6 +789,10 @@ export default function Dashboard({ initialProjects = [], initialServers = [] })
                 triggerAlert('Please enter your custom SSH Private Key path (or switch to Auto-detect).', 'SSH Key Required', 'warning');
                 return;
             }
+            if (authMethod === 'key' && (!linuxKeyContent || !linuxKeyContent.trim())) {
+                triggerAlert('Please paste your SSH Private Key (.pem / id_rsa / id_ed25519) or browse a key file from your device.', 'Private Key Required', 'warning');
+                return;
+            }
             if (authMethod === 'password' && (!linuxPassword || !linuxPassword.trim())) {
                 triggerAlert('Please enter your SSH account password to proceed.', 'Password Required', 'warning');
                 return;
@@ -802,12 +824,13 @@ export default function Dashboard({ initialProjects = [], initialServers = [] })
         }
     };
 
-    const handleTestAndConnect = async (os, userOverride = null, passphraseOverride = null, passwordOverride = null) => {
+    const handleTestAndConnect = async (os, userOverride = null, passphraseOverride = null, passwordOverride = null, keyContentOverride = null) => {
         const targetUser = (userOverride || (os === 'linux' ? linuxUser : windowsUser) || '').trim();
         const targetIp = (os === 'linux' ? linuxIp : windowsIp || '').trim();
         const targetPort = (os === 'linux' ? linuxPort : windowsPort || '22').trim();
         const targetPassword = passwordOverride !== null ? passwordOverride : (os === 'linux' ? linuxPassword : windowsPassword);
         const targetKeyPath = os === 'linux' && authMethod === 'custom_key' ? linuxKey : '';
+        const targetKeyContent = keyContentOverride !== null ? keyContentOverride : (os === 'linux' && authMethod === 'key' ? linuxKeyContent : '');
         const currentPassphrase = passphraseOverride !== null ? passphraseOverride : keyPassphrase;
 
         const portPart = (targetPort && targetPort !== '22') ? `-p ${targetPort} ` : '';
@@ -842,9 +865,10 @@ export default function Dashboard({ initialProjects = [], initialServers = [] })
                     ip: targetIp,
                     port: targetPort,
                     user: targetUser,
-                    auth_method: authMethod === 'custom_key' ? 'key' : authMethod,
+                    auth_method: (authMethod === 'custom_key' || authMethod === 'key') ? 'key' : authMethod,
                     password: targetPassword,
                     key_path: targetKeyPath,
+                    key_content: targetKeyContent || null,
                     key_passphrase: currentPassphrase || null,
                 })
             });
@@ -874,6 +898,20 @@ export default function Dashboard({ initialProjects = [], initialServers = [] })
                 if (data.commands && Array.isArray(data.commands)) {
                     setLiveCommandLogs(data.commands);
                 }
+                return;
+            }
+
+            // Check if remote host requires explicit SSH key (e.g. password disabled)
+            if (data.requires_key) {
+                setIsTestingConnection(false);
+                setTestLog(null);
+                setShowPassphrasePrompt(false);
+                setShowPasswordPrompt(false);
+                setAuthMethod('key');
+                if (data.commands && Array.isArray(data.commands)) {
+                    setLiveCommandLogs(data.commands);
+                }
+                triggerAlert(data.message, 'SSH Private Key Required', 'warning');
                 return;
             }
 
@@ -914,9 +952,10 @@ export default function Dashboard({ initialProjects = [], initialServers = [] })
             }
             const fullServer = {
                 ...data.server,
-                auth_method: authMethod === 'custom_key' ? 'key' : authMethod,
+                auth_method: (authMethod === 'custom_key' || authMethod === 'key') ? 'key' : authMethod,
                 password: targetPassword,
                 key_path: targetKeyPath,
+                key_content: targetKeyContent || null,
                 key_passphrase: currentPassphrase || null,
             };
             setConnectedServer(fullServer);
@@ -989,9 +1028,10 @@ export default function Dashboard({ initialProjects = [], initialServers = [] })
             ip: connectedServer.ip,
             port: connectedServer.port || 22,
             user: connectedServer.user,
-            auth_method: connectedServer.auth_method || authMethod,
+            auth_method: connectedServer.auth_method || ((authMethod === 'custom_key' || authMethod === 'key') ? 'key' : authMethod),
             password: connectedServer.password || (connectedServer.type === 'linux' ? linuxPassword : windowsPassword),
             key_path: connectedServer.key_path || (connectedServer.type === 'linux' ? linuxKey : ''),
+            key_content: connectedServer.key_content || (connectedServer.type === 'linux' && authMethod === 'key' ? linuxKeyContent : null),
             key_passphrase: connectedServer.key_passphrase || keyPassphrase,
             os: connectedServer.os,
             type: connectedServer.type,
@@ -2673,6 +2713,18 @@ export default function Dashboard({ initialProjects = [], initialServers = [] })
                                         </button>
                                         <button
                                             type="button"
+                                            onClick={() => setAuthMethod('key')}
+                                            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 ${
+                                                authMethod === 'key'
+                                                    ? 'bg-indigo-600 text-white'
+                                                    : 'bg-slate-800 text-slate-400 hover:text-white'
+                                            }`}
+                                        >
+                                            <Key className="w-3.5 h-3.5" />
+                                            <span>Paste / Upload Key (.pem)</span>
+                                        </button>
+                                        <button
+                                            type="button"
                                             onClick={() => setAuthMethod('password')}
                                             className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
                                                 authMethod === 'password'
@@ -2691,7 +2743,7 @@ export default function Dashboard({ initialProjects = [], initialServers = [] })
                                                     : 'bg-slate-800 text-slate-400 hover:text-white'
                                             }`}
                                         >
-                                            Custom Key Path
+                                            Server Key Path
                                         </button>
                                     </div>
 
@@ -2699,6 +2751,46 @@ export default function Dashboard({ initialProjects = [], initialServers = [] })
                                         <div className="mt-2 text-[11px] text-slate-400 flex items-center gap-1.5 bg-[#0A0E18] p-2.5 rounded-xl border border-slate-800/80">
                                             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                                             <span>Automatically detects standard keys (<code>id_ed25519</code>, <code>id_rsa</code>) from your system behind the scenes.</span>
+                                        </div>
+                                    )}
+
+                                    {authMethod === 'key' && (
+                                        <div className="mt-3 space-y-2.5">
+                                            <div className="flex items-center justify-between">
+                                                <label className="text-[11px] font-semibold text-slate-300 flex items-center gap-1.5">
+                                                    <Key className="w-3.5 h-3.5 text-indigo-400" />
+                                                    <span>SSH Private Key (.pem, id_rsa, id_ed25519)</span>
+                                                </label>
+                                                <label className="cursor-pointer text-[11px] text-indigo-400 hover:text-indigo-300 font-semibold flex items-center gap-1 bg-indigo-500/10 hover:bg-indigo-500/20 px-2.5 py-1 rounded-lg border border-indigo-500/30 transition-colors">
+                                                    <Upload className="w-3 h-3" />
+                                                    <span>{uploadedKeyFileName ? `File: ${uploadedKeyFileName}` : 'Select Key File'}</span>
+                                                    <input
+                                                        type="file"
+                                                        className="hidden"
+                                                        accept=".pem,.key,id_rsa,id_ed25519,*"
+                                                        onChange={handleKeyFileUpload}
+                                                    />
+                                                </label>
+                                            </div>
+                                            <textarea
+                                                rows={4}
+                                                value={linuxKeyContent}
+                                                onChange={(e) => setLinuxKeyContent(e.target.value)}
+                                                placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;...&#10;-----END OPENSSH PRIVATE KEY-----"
+                                                className="w-full px-3 py-2 bg-[#0E131F] border border-slate-800 rounded-xl text-white font-mono text-[11px] focus:ring-1 focus:ring-indigo-500 leading-tight placeholder:text-slate-600"
+                                            />
+                                            <div className="flex items-center gap-2">
+                                                <input
+                                                    type="password"
+                                                    value={keyPassphrase}
+                                                    onChange={(e) => setKeyPassphrase(e.target.value)}
+                                                    placeholder="Optional key passphrase (leave blank if none)"
+                                                    className="w-full px-3 py-2 bg-[#0E131F] border border-slate-800 rounded-xl text-white font-mono text-xs focus:ring-1 focus:ring-indigo-500 placeholder:text-slate-500"
+                                                />
+                                            </div>
+                                            <div className="p-2.5 bg-indigo-950/20 border border-indigo-500/20 rounded-xl text-[11px] text-indigo-300/90 leading-relaxed">
+                                                <strong>Tip:</strong> If your server disabled password logins, paste the private key you downloaded from your cloud provider (AWS/DigitalOcean/Hetzner) or upload your <code className="font-mono text-indigo-200">.pem</code> file.
+                                            </div>
                                         </div>
                                     )}
 
@@ -2712,7 +2804,7 @@ export default function Dashboard({ initialProjects = [], initialServers = [] })
                                                  className="w-full px-3.5 py-2.5 bg-[#0E131F] border border-slate-800 rounded-xl text-white font-mono text-xs focus:ring-1 focus:ring-indigo-500"
                                             />
                                             <span className="text-[11px] text-slate-400 mt-1 block">
-                                                Path to stored SSH deploy key with 600 permissions.
+                                                Path to stored SSH deploy key on the server with 600 permissions.
                                             </span>
                                         </div>
                                     )}

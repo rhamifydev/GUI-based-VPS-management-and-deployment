@@ -48,7 +48,8 @@ import {
     Copy,
     Check,
     Pencil,
-    Settings
+    Settings,
+    Upload
 } from 'lucide-react';
 import ManageProjectModal from '@/Components/ManageProjectModal';
 
@@ -1475,6 +1476,44 @@ export default function ServerShow({ server: initialServer, projects: initialPro
                                         </select>
                                     </div>
                                 </div>
+
+                                {editForm.auth_method === 'key' && (
+                                    <div className="space-y-2">
+                                        <div className="flex items-center justify-between">
+                                            <label className="block text-xs font-semibold text-slate-300">
+                                                Update SSH Private Key (.pem / id_rsa)
+                                            </label>
+                                            <label className="cursor-pointer text-[11px] text-indigo-400 hover:text-indigo-300 font-semibold flex items-center gap-1 bg-indigo-500/10 px-2.5 py-1 rounded-lg border border-indigo-500/30">
+                                                <Upload className="w-3 h-3" />
+                                                <span>Select .pem File</span>
+                                                <input
+                                                    type="file"
+                                                    className="hidden"
+                                                    accept=".pem,.key,id_rsa,id_ed25519,*"
+                                                    onChange={(e) => {
+                                                        const file = e.target.files?.[0];
+                                                        if (!file) return;
+                                                        const reader = new FileReader();
+                                                        reader.onload = (event) => {
+                                                            const text = event.target?.result;
+                                                            if (typeof text === 'string') {
+                                                                setEditForm({ ...editForm, key_content: text.trim() });
+                                                            }
+                                                        };
+                                                        reader.readAsText(file);
+                                                    }}
+                                                />
+                                            </label>
+                                        </div>
+                                        <textarea
+                                            rows={4}
+                                            value={editForm.key_content}
+                                            onChange={(e) => setEditForm({ ...editForm, key_content: e.target.value })}
+                                            placeholder={server.has_key ? '•••••••••••• (Encrypted in database. Paste new key here to replace)' : '-----BEGIN OPENSSH PRIVATE KEY-----...'}
+                                            className="w-full bg-[#080B12] border border-slate-700/80 rounded-xl px-3.5 py-2.5 text-[11px] text-white font-mono placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                                        />
+                                    </div>
+                                )}
 
                                 <div>
                                     <label className="block text-xs font-semibold text-slate-300 mb-1.5 flex items-center justify-between">

@@ -21,7 +21,8 @@ import {
     Key,
     Lock,
     Shield,
-    ChevronRight
+    ChevronRight,
+    Upload
 } from 'lucide-react';
 
 export default function ServersIndex({ servers: initialServers = [], projects = [] }) {
@@ -43,7 +44,22 @@ export default function ServersIndex({ servers: initialServers = [], projects = 
     const [serverPassword, setServerPassword] = useState('');
     const [serverKeyContent, setServerKeyContent] = useState('');
     const [serverPassphrase, setServerPassphrase] = useState('');
+    const [uploadedKeyFileName, setUploadedKeyFileName] = useState('');
     const [isSavingServer, setIsSavingServer] = useState(false);
+
+    const handleKeyFileUpload = (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        setUploadedKeyFileName(file.name);
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            const text = event.target?.result;
+            if (typeof text === 'string') {
+                setServerKeyContent(text.trim());
+            }
+        };
+        reader.readAsText(file);
+    };
 
     const triggerAlert = (message, title = 'Notice', type = 'info') => {
         setAlertNotice({ title, message, type });
@@ -582,33 +598,45 @@ export default function ServersIndex({ servers: initialServers = [], projects = 
 
                             <div>
                                 <label className="block text-xs font-semibold text-slate-300 mb-1.5">Authentication Method</label>
-                                <div className="grid grid-cols-2 gap-2">
+                                <div className="grid grid-cols-3 gap-2">
                                     <button
                                         type="button"
                                         onClick={() => setAuthMethod('auto')}
-                                        className={`px-3 py-2 rounded-xl text-xs font-medium border text-center transition-all ${
+                                        className={`px-2.5 py-2 rounded-xl text-xs font-medium border text-center transition-all ${
                                             authMethod === 'auto'
-                                                ? 'bg-indigo-600/20 border-indigo-500 text-white'
+                                                ? 'bg-indigo-600/20 border-indigo-500 text-white font-bold'
                                                 : 'bg-[#080B12] border-slate-800 text-slate-400'
                                         }`}
                                     >
-                                        Auto SSH Key (~/.ssh)
+                                        Auto (~/.ssh)
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setAuthMethod('key')}
+                                        className={`px-2.5 py-2 rounded-xl text-xs font-medium border text-center transition-all flex items-center justify-center gap-1 ${
+                                            authMethod === 'key'
+                                                ? 'bg-indigo-600/20 border-indigo-500 text-white font-bold'
+                                                : 'bg-[#080B12] border-slate-800 text-slate-400'
+                                        }`}
+                                    >
+                                        <Key className="w-3 h-3" />
+                                        <span>Private Key</span>
                                     </button>
                                     <button
                                         type="button"
                                         onClick={() => setAuthMethod('password')}
-                                        className={`px-3 py-2 rounded-xl text-xs font-medium border text-center transition-all ${
+                                        className={`px-2.5 py-2 rounded-xl text-xs font-medium border text-center transition-all ${
                                             authMethod === 'password'
-                                                ? 'bg-indigo-600/20 border-indigo-500 text-white'
+                                                ? 'bg-indigo-600/20 border-indigo-500 text-white font-bold'
                                                 : 'bg-[#080B12] border-slate-800 text-slate-400'
                                         }`}
                                     >
-                                        Password Auth
+                                        Password
                                     </button>
                                 </div>
                             </div>
 
-                            {authMethod === 'password' ? (
+                            {authMethod === 'password' && (
                                 <div>
                                     <label className="block text-xs font-semibold text-slate-300 mb-1.5">Server Password</label>
                                     <input
@@ -619,14 +647,51 @@ export default function ServersIndex({ servers: initialServers = [], projects = 
                                         className="w-full bg-[#080B12] border border-slate-800 rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-indigo-500"
                                     />
                                 </div>
-                            ) : (
+                            )}
+
+                            {authMethod === 'key' && (
+                                <div className="space-y-2.5">
+                                    <div className="flex items-center justify-between">
+                                        <label className="block text-xs font-semibold text-slate-300">Private Key (.pem / id_rsa)</label>
+                                        <label className="cursor-pointer text-[11px] text-indigo-400 hover:text-indigo-300 font-semibold flex items-center gap-1 bg-indigo-500/10 px-2.5 py-1 rounded-lg border border-indigo-500/30">
+                                            <Upload className="w-3 h-3" />
+                                            <span>{uploadedKeyFileName ? `File: ${uploadedKeyFileName}` : 'Select .pem File'}</span>
+                                            <input
+                                                type="file"
+                                                className="hidden"
+                                                accept=".pem,.key,id_rsa,id_ed25519,*"
+                                                onChange={handleKeyFileUpload}
+                                            />
+                                        </label>
+                                    </div>
+                                    <textarea
+                                        rows={4}
+                                        value={serverKeyContent}
+                                        onChange={e => setServerKeyContent(e.target.value)}
+                                        placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;...&#10;-----END OPENSSH PRIVATE KEY-----"
+                                        className="w-full bg-[#080B12] border border-slate-800 rounded-xl px-3 py-2 text-[11px] text-white font-mono focus:outline-none focus:border-indigo-500 placeholder:text-slate-600"
+                                    />
+                                    <div>
+                                        <label className="block text-xs font-semibold text-slate-300 mb-1">Optional Key Passphrase</label>
+                                        <input
+                                            type="password"
+                                            value={serverPassphrase}
+                                            onChange={e => setServerPassphrase(e.target.value)}
+                                            placeholder="Leave blank if unencrypted"
+                                            className="w-full bg-[#080B12] border border-slate-800 rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-indigo-500 placeholder:text-slate-600"
+                                        />
+                                    </div>
+                                </div>
+                            )}
+
+                            {authMethod === 'auto' && (
                                 <div>
                                     <label className="block text-xs font-semibold text-slate-300 mb-1.5">Optional Key Passphrase</label>
                                     <input
                                         type="password"
                                         value={serverPassphrase}
                                         onChange={e => setServerPassphrase(e.target.value)}
-                                        placeholder="If your private key is passphrase-protected"
+                                        placeholder="If your private key in ~/.ssh is passphrase-protected"
                                         className="w-full bg-[#080B12] border border-slate-800 rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-indigo-500"
                                     />
                                 </div>

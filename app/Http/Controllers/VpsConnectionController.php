@@ -167,7 +167,19 @@ class VpsConnectionController extends Controller
                     $allowedMethods = $ssh->getAuthMethodsToContinue();
                     if (is_array($allowedMethods) && !in_array('password', $allowedMethods) && !in_array('keyboard-interactive', $allowedMethods)) {
                         $allowedStr = implode(', ', $allowedMethods);
-                        $lastError = "Password authentication is disabled on {$ip} (Server only permits: {$allowedStr}). You must authenticate using an authorized SSH private key.";
+                        return response()->json([
+                            'success' => false,
+                            'requires_key' => true,
+                            'message' => "Password authentication is disabled on {$ip} (Server only permits: {$allowedStr}). You must authenticate using an authorized SSH private key (.pem / id_rsa / id_ed25519).",
+                            'commands' => [
+                                [
+                                    'time' => date('H:i:s'),
+                                    'cmd' => $displayCmd,
+                                    'status' => 'failed',
+                                    'output' => "Password rejected: Remote server at {$ip} has disabled password authentication (Allowed methods: {$allowedStr}). You must provide an authorized private key."
+                                ]
+                            ]
+                        ], 401);
                     } else {
                         $userHint = $user !== 'root' ? " Please verify your password. If user '{$user}' has not been created on the VPS yet, connect as 'root' first." : " Please verify that the root password is correct.";
                         $lastError = $this->getSshLastError($ssh, 'Password rejected by remote server.') . $userHint;
@@ -184,13 +196,14 @@ class VpsConnectionController extends Controller
                     $allowedStr = implode(', ', $allowedMethods);
                     return response()->json([
                         'success' => false,
-                        'message' => "Public key rejected and remote server at {$ip} does not allow password authentication (Server only allows: {$allowedStr}). You must provide an authorized SSH private key.",
+                        'requires_key' => true,
+                        'message' => "Public key rejected and remote server at {$ip} does not allow password authentication (Server only allows: {$allowedStr}). You must provide an authorized SSH private key (.pem / id_rsa / id_ed25519).",
                         'commands' => [
                             [
                                 'time' => date('H:i:s'),
                                 'cmd' => $displayCmd,
                                 'status' => 'failed',
-                                'output' => "Public key authentication failed. Server rejected password auth (Allowed methods: {$allowedStr})."
+                                'output' => "Public key authentication failed. Server rejected password auth (Allowed methods: {$allowedStr}). Upload or paste your SSH private key."
                             ]
                         ]
                     ], 401);
